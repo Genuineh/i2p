@@ -45,9 +45,19 @@ export interface ImageAnalysisResult {
 }
 
 /**
+ * 支持的 AI 提供商类型
+ * - openai: OpenAI GPT-4 Vision
+ * - alibaba: 阿里云通义千问 (Qwen-VL)
+ * - gemini: Google Gemini
+ */
+export type AIProvider = "openai" | "alibaba" | "gemini";
+
+/**
  * 图片识别服务配置
  */
 export interface ImageRecognitionConfig {
+  // AI 提供商类型
+  openApiProvider?: AIProvider;
   // OpenAPI 配置
   openApiEndpoint?: string;
   openApiKey?: string;

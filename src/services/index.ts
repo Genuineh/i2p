@@ -34,9 +34,10 @@ export class ImageRecognitionManager {
     });
 
     // 如果提供了 OpenAPI 配置，初始化 OpenAPI 服务
-    if (config.openApiEndpoint && config.openApiKey) {
+    if (config.openApiKey) {
       try {
         this.openApiService = new OpenApiVisionService({
+          provider: config.openApiProvider,
           endpoint: config.openApiEndpoint,
           apiKey: config.openApiKey,
           model: config.openApiModel,
@@ -177,12 +178,13 @@ export class ImageRecognitionManager {
     this.config = { ...this.config, ...config };
 
     // 如果更新了 OpenAPI 配置，重新初始化服务
-    if (config.openApiEndpoint && config.openApiKey) {
+    if (config.openApiKey) {
       try {
         this.openApiService = new OpenApiVisionService({
-          endpoint: config.openApiEndpoint,
+          provider: config.openApiProvider ?? this.config.openApiProvider,
+          endpoint: config.openApiEndpoint ?? this.config.openApiEndpoint,
           apiKey: config.openApiKey,
-          model: config.openApiModel,
+          model: config.openApiModel ?? this.config.openApiModel,
         });
       } catch (error) {
         console.warn("OpenAPI 服务初始化失败:", error);

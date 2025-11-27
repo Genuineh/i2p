@@ -11,10 +11,24 @@ const recognitionConfig: ImageRecognitionConfig = {
   enableLocalFallback: true,
   colorThreshold: 30,
   minRegionSize: 20,
-  // OpenAPI 配置（如果需要使用 AI 识别，请配置以下参数）
-  // openApiEndpoint: 'https://api.openai.com/v1/chat/completions',
+  // AI 提供商配置（支持 openai、alibaba、gemini）
+  // openApiProvider: 'openai',  // 可选值: 'openai' | 'alibaba' | 'gemini'
   // openApiKey: 'your-api-key',
-  // openApiModel: 'gpt-4-vision-preview',
+  //
+  // OpenAI 配置示例:
+  // openApiProvider: 'openai',
+  // openApiEndpoint: 'https://api.openai.com/v1/chat/completions',  // 可选，使用默认值
+  // openApiModel: 'gpt-4-vision-preview',  // 可选，使用默认值
+  //
+  // 阿里云通义千问配置示例:
+  // openApiProvider: 'alibaba',
+  // openApiEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',  // 可选
+  // openApiModel: 'qwen-vl-max',  // 可选，使用默认值
+  //
+  // Google Gemini 配置示例:
+  // openApiProvider: 'gemini',
+  // openApiEndpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',  // 可选
+  // openApiModel: 'gemini-2.0-flash',  // 可选，使用默认值
 };
 
 // 创建图片识别管理器

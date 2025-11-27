@@ -1,6 +1,6 @@
 /**
  * OpenAPI 图片识别服务
- * 支持 OpenAI Vision API 等兼容 OpenAPI 的图片大模型服务
+ * 支持 OpenAI Vision API、阿里云通义千问 (Qwen-VL)、Google Gemini 等兼容 OpenAPI 的图片大模型服务
  */
 
 import {
@@ -9,17 +9,31 @@ import {
   RecognizedElement,
   ColorInfo,
   ElementType,
+  AIProvider,
 } from "./types";
 
 /**
- * OpenAPI 服务配置
+ * OpenAPI 服务配置（用户输入）
  */
 interface OpenApiConfig {
-  endpoint: string;
+  provider?: AIProvider;
+  endpoint?: string;
   apiKey: string;
   model?: string;
   maxTokens?: number;
   timeout?: number;
+}
+
+/**
+ * 处理后的完整配置
+ */
+interface ProcessedOpenApiConfig {
+  provider: AIProvider;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  timeout: number;
 }
 
 /**
@@ -46,28 +60,62 @@ interface ApiResponse {
 }
 
 /**
+ * 提供商预设配置
+ */
+interface ProviderPreset {
+  defaultEndpoint: string;
+  defaultModel: string;
+  authHeader: (apiKey: string) => Record<string, string>;
+}
+
+/**
+ * 各提供商的预设配置
+ */
+const PROVIDER_PRESETS: Record<AIProvider, ProviderPreset> = {
+  openai: {
+    defaultEndpoint: "https://api.openai.com/v1/chat/completions",
+    defaultModel: "gpt-4-vision-preview",
+    authHeader: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
+  },
+  alibaba: {
+    defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    defaultModel: "qwen-vl-max",
+    authHeader: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
+  },
+  gemini: {
+    defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    defaultModel: "gemini-2.0-flash",
+    authHeader: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
+  },
+};
+
+/**
  * OpenAPI 图片识别服务
- * 使用 OpenAI Vision API 或兼容的服务进行智能图片分析
+ * 使用 OpenAI Vision API、阿里云通义千问或 Google Gemini 进行智能图片分析
  */
 export class OpenApiVisionService implements IImageRecognitionService {
-  private config: Required<OpenApiConfig>;
+  private config: ProcessedOpenApiConfig;
 
   constructor(config: OpenApiConfig) {
-    if (!config.endpoint || !config.apiKey) {
-      throw new Error("OpenAPI 配置缺少必要的 endpoint 或 apiKey");
+    if (!config.apiKey) {
+      throw new Error("OpenAPI 配置缺少必要的 apiKey");
     }
 
+    const provider = config.provider ?? "openai";
+    const preset = PROVIDER_PRESETS[provider];
+
     this.config = {
-      endpoint: config.endpoint,
+      provider,
+      endpoint: config.endpoint ?? preset.defaultEndpoint,
       apiKey: config.apiKey,
-      model: config.model ?? "gpt-4-vision-preview",
+      model: config.model ?? preset.defaultModel,
       maxTokens: config.maxTokens ?? 4096,
       timeout: config.timeout ?? 30000,
     };
   }
 
   getName(): string {
-    return "OpenApiVisionService";
+    return `OpenApiVisionService (${this.config.provider})`;
   }
 
   async isAvailable(): Promise<boolean> {
@@ -96,13 +144,14 @@ export class OpenApiVisionService implements IImageRecognitionService {
         height: 0,
         elements: [],
         success: false,
-        error: `OpenAPI 服务调用失败: ${errorMessage}`,
+        error: `OpenAPI 服务调用失败 (${this.config.provider}): ${errorMessage}`,
       };
     }
   }
 
   /**
    * 构建 API 请求体
+   * 所有支持的提供商都使用 OpenAI 兼容的请求格式
    */
   private buildRequestBody(imageData: string): object {
     const prompt = `分析这张图片，识别其中的UI设计元素。请以JSON格式返回结果，格式如下：
@@ -125,6 +174,7 @@ export class OpenApiVisionService implements IImageRecognitionService {
 
 请尽量准确地识别图片中的按钮、文本、图片、容器等UI元素的位置、大小和颜色。只返回JSON，不要其他说明。`;
 
+    // 所有提供商都使用 OpenAI 兼容的请求格式
     return {
       model: this.config.model,
       messages: [
@@ -156,12 +206,14 @@ export class OpenApiVisionService implements IImageRecognitionService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
 
+    const preset = PROVIDER_PRESETS[this.config.provider];
+
     try {
       const response = await fetch(this.config.endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
+          ...preset.authHeader(this.config.apiKey),
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -174,7 +226,7 @@ export class OpenApiVisionService implements IImageRecognitionService {
 
       const data = await response.json();
 
-      // 提取响应内容
+      // 提取响应内容 - 所有提供商都使用 OpenAI 兼容的响应格式
       if (data.choices?.[0]?.message?.content) {
         return data.choices[0].message.content;
       }

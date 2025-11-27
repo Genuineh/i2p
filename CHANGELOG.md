@@ -14,7 +14,11 @@
 - **阶段二：图片处理核心功能**
   - 实现图片识别服务模块化架构 (`src/services/`)
   - 实现本地图像处理服务 (`LocalImageProcessor`) - 使用 Canvas API 进行颜色和区域分析
-  - 实现 OpenAPI 图片识别服务 (`OpenApiVisionService`) - 支持 OpenAI Vision API 等兼容服务
+  - 实现 OpenAPI 图片识别服务 (`OpenApiVisionService`) - 支持多个 AI 提供商:
+    - **OpenAI**: GPT-4 Vision API
+    - **阿里云**: 通义千问 (Qwen-VL) 视觉模型
+    - **Google**: Gemini 2.0 Flash 视觉模型
+  - 所有 AI 提供商使用统一的 OpenAI 兼容接口，方便切换
   - 实现图片识别管理器 (`ImageRecognitionManager`) - 统一管理和调度识别服务，支持服务降级
   - 实现图片压缩工具函数 (`src/utils/imageUtils.ts`)
   - 集成图片识别到主线程 (`main.ts`)
