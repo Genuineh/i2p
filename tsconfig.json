@@ -11,8 +11,6 @@
     "moduleResolution": "node",
     "allowJs": true,
     "baseUrl": ".",
-    "types": [
-      "@pixso/plugin-typings"
-    ]
+    "types": ["@pixso/plugin-typings"]
   }
 }
