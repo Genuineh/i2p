@@ -1,0 +1,9 @@
+{
+  "id": "i2p-image-to-pixso",
+  "name": "Image to Pixso (I2P)",
+  "ui": "dist/ui.html",
+  "main": {
+    "sandbox": "dist/main.js",
+    "host": "dist/host.js"
+  }
+}

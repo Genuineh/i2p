@@ -1,0 +1,31 @@
+{
+  "name": "i2p-pixso-plugin",
+  "version": "1.0.0",
+  "description": "Pixso 插件 - 上传截图自动生成设计内容 (Image to Pixso)",
+  "scripts": {
+    "build": "plugin-cli build",
+    "dev": "plugin-cli dev",
+    "pkg": "plugin-cli pkg"
+  },
+  "keywords": [
+    "pixso",
+    "plugin",
+    "image-to-design",
+    "screenshot",
+    "react",
+    "typescript"
+  ],
+  "author": "Genuineh",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^16.13.1",
+    "react-dom": "^16.13.1"
+  },
+  "devDependencies": {
+    "@pixso/plugin-typings": "^0.5.0",
+    "@types/react": "^16.9.35",
+    "@types/react-dom": "^16.9.8",
+    "@pixso/plugin-cli": "^1.0.7",
+    "webpack-hot-middleware": "^2.25.3"
+  }
+}
