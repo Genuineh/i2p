@@ -4,7 +4,8 @@ import "./app.css";
 
 // 支持的图片格式
 const SUPPORTED_FORMATS = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 // 上传状态类型
 type UploadStatus = "idle" | "uploading" | "success" | "error";
@@ -32,7 +33,7 @@ const App = () => {
       return `不支持的文件格式。请上传 PNG, JPG, JPEG 或 WebP 格式的图片。`;
     }
     if (file.size > MAX_FILE_SIZE) {
-      return `文件大小超过限制。最大支持 10MB。`;
+      return `文件大小超过限制。最大支持 ${MAX_FILE_SIZE_MB}MB。`;
     }
     return null;
   };
