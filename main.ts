@@ -20,6 +20,28 @@ const recognitionConfig: ImageRecognitionConfig = {
 // 创建图片识别管理器
 const imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
 
+// 缓存字体加载状态
+let fontLoaded = false;
+let fontLoadPromise: Promise<void> | null = null;
+
+/**
+ * 加载默认字体（带缓存）
+ */
+async function ensureFontLoaded(): Promise<void> {
+  if (fontLoaded) return;
+
+  if (!fontLoadPromise) {
+    fontLoadPromise = pixso
+      .loadFontAsync({ family: "Inter", style: "Regular" })
+      .catch(() => pixso.loadFontAsync({ family: "Arial", style: "Regular" }))
+      .then(() => {
+        fontLoaded = true;
+      });
+  }
+
+  return fontLoadPromise;
+}
+
 pixso.showUI(__html__, { width: 400, height: 520 });
 
 pixso.ui.onmessage = async (msg) => {
@@ -154,11 +176,8 @@ async function createElementNode(element: RecognizedElement): Promise<SceneNode 
       const text = pixso.createText();
       text.x = element.x;
       text.y = element.y;
-      // 加载默认字体
-      await pixso.loadFontAsync({ family: "Inter", style: "Regular" }).catch(() => {
-        // 如果 Inter 不可用，尝试系统字体
-        return pixso.loadFontAsync({ family: "Arial", style: "Regular" });
-      });
+      // 使用缓存的字体加载
+      await ensureFontLoaded();
       text.characters = element.text || "Text";
       if (element.fontSize) {
         text.fontSize = element.fontSize;

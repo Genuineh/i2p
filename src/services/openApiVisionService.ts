@@ -190,13 +190,25 @@ export class OpenApiVisionService implements IImageRecognitionService {
    */
   private parseResponse(content: string): ImageAnalysisResult {
     try {
-      // 尝试从响应中提取 JSON
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("无法从响应中提取JSON");
+      // 尝试从响应中提取 JSON，使用更精确的匹配
+      // 首先尝试直接解析整个内容
+      let parsed: ApiResponse;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        // 如果直接解析失败，查找代码块中的 JSON
+        const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        if (codeBlockMatch) {
+          parsed = JSON.parse(codeBlockMatch[1]);
+        } else {
+          // 尝试匹配第一个完整的 JSON 对象（非贪婪匹配到包含 elements 数组的对象）
+          const jsonMatch = content.match(/\{[^{}]*"elements"\s*:\s*\[[^\]]*\][^{}]*\}/);
+          if (!jsonMatch) {
+            throw new Error("无法从响应中提取JSON");
+          }
+          parsed = JSON.parse(jsonMatch[0]);
+        }
       }
-
-      const parsed: ApiResponse = JSON.parse(jsonMatch[0]);
 
       const elements: RecognizedElement[] = (parsed.elements || []).map((elem) =>
         this.convertElement(elem)

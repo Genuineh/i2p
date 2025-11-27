@@ -117,7 +117,9 @@ export class LocalImageProcessor implements IImageRecognitionService {
   private extractDominantColors(imageData: ImageData): ColorInfo[] {
     const colorMap = new Map<string, { color: ColorInfo; count: number }>();
     const data = imageData.data;
-    const step = 4; // 采样步长，提高性能
+    // 自适应采样步长：根据图片大小动态调整
+    const totalPixels = imageData.width * imageData.height;
+    const step = Math.max(4, Math.floor(totalPixels / 100000));
 
     for (let i = 0; i < data.length; i += 4 * step) {
       // 量化颜色以减少颜色数量
