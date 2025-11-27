@@ -26,6 +26,6 @@
     "@types/react": "^16.9.35",
     "@types/react-dom": "^16.9.8",
     "@pixso/plugin-cli": "^1.0.7",
-    "webpack-hot-middleware": "2.25.3"
+    "webpack-hot-middleware": "^2.25.3"
   }
 }

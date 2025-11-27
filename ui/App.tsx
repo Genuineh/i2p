@@ -18,7 +18,10 @@ const App = () => {
   const onchange: ChangeEventHandler<HTMLInputElement> = (e) => {
     const target = e.target;
     if (!target) return;
-    setCount(Number(target.value));
+    const value = parseInt(target.value, 10);
+    if (!isNaN(value) && value > 0) {
+      setCount(value);
+    }
   };
   return (
     <div className="main-wrapper">
