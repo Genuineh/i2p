@@ -119,7 +119,10 @@ export class LayoutAnalyzer {
   /**
    * 分析并保持元素间距
    */
-  analyzeSpacing(elements: RecognizedElement[]): { horizontalGaps: number[]; verticalGaps: number[] } {
+  analyzeSpacing(elements: RecognizedElement[]): {
+    horizontalGaps: number[];
+    verticalGaps: number[];
+  } {
     if (elements.length < 2) {
       return { horizontalGaps: [], verticalGaps: [] };
     }

@@ -275,8 +275,7 @@ export class LocalImageProcessor implements IImageRecognitionService {
 
     // 检查空间相邻性
     const gap = 5;
-    const adjacentX =
-      Math.abs(a.x + a.width - b.x) <= gap || Math.abs(b.x + b.width - a.x) <= gap;
+    const adjacentX = Math.abs(a.x + a.width - b.x) <= gap || Math.abs(b.x + b.width - a.x) <= gap;
     const adjacentY =
       Math.abs(a.y + a.height - b.y) <= gap || Math.abs(b.y + b.height - a.y) <= gap;
     const overlapX = a.x < b.x + b.width && a.x + a.width > b.x;
