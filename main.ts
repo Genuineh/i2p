@@ -146,8 +146,13 @@ class HostCommunicationManager {
       // 如果 Host 未就绪，将消息加入待处理队列
       // 检查队列是否已满，防止内存泄漏
       if (this.pendingMessages.length >= HostCommunicationManager.MAX_PENDING_MESSAGES) {
-        console.warn("待处理消息队列已满，丢弃最早的消息");
-        this.pendingMessages.shift();
+        const droppedMessage = this.pendingMessages.shift();
+        console.warn(
+          "待处理消息队列已满，丢弃最早的消息:",
+          droppedMessage?.type,
+          "时间戳:",
+          droppedMessage?.timestamp
+        );
       }
       this.pendingMessages.push(message);
       console.log("Host 未就绪，消息已加入队列:", message.type);
@@ -279,13 +284,14 @@ pixso.ui.onmessage = async (msg) => {
     await handleImageUpload(msg.data, msg.fileName);
   } else if (msg.type === "request-host-status") {
     // 请求 Host 状态
-    hostCommunication.sendToHost({ type: "host-status", timestamp: Date.now() });
+    const timestamp = Date.now();
+    hostCommunication.sendToHost({ type: "host-status", timestamp });
     // 同时返回 Sandbox 端的状态
     pixso.ui.postMessage({
       type: "sandbox-status",
       data: {
         hostReady: hostCommunication.isHostReady(),
-        timestamp: Date.now(),
+        timestamp,
       },
     });
   } else if (msg.type === "show-plugin-dock") {

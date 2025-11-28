@@ -71,7 +71,8 @@ class HostScriptManager {
         try {
           handler(message);
         } catch (error) {
-          console.error(`消息处理器执行错误 (type: ${message.type}):`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`消息处理器执行错误 (type: ${message.type}):`, errorMessage, error);
         }
       });
     } else {
