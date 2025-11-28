@@ -533,9 +533,7 @@ const App = () => {
           <div className="upload-content">
             <div className="upload-icon">📷</div>
             <p className="upload-text">点击或拖拽图片到此处上传</p>
-            <p className="upload-hint">
-              支持 Ctrl+V 粘贴图片 | PNG, JPG, WebP | 最大 10MB
-            </p>
+            <p className="upload-hint">支持 Ctrl+V 粘贴图片 | PNG, JPG, WebP | 最大 10MB</p>
           </div>
         )}
       </div>

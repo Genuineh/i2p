@@ -34,12 +34,7 @@ export async function compressImage(
   imageData: string,
   options: ImageCompressionOptions = {}
 ): Promise<CompressionResult> {
-  const {
-    maxWidth = 1920,
-    maxHeight = 1080,
-    quality = 0.8,
-    outputFormat = "image/jpeg",
-  } = options;
+  const { maxWidth = 1920, maxHeight = 1080, quality = 0.8, outputFormat = "image/jpeg" } = options;
 
   // 计算原始大小
   const originalSize = Math.round((imageData.length * 3) / 4);
