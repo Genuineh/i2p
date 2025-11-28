@@ -11,6 +11,30 @@
 export type AIProvider = "openai" | "alibaba" | "gemini";
 
 /**
+ * AI 分析提示词
+ * 用于指导 AI 模型如何分析图片并返回 UI 元素数据
+ */
+const AI_ANALYSIS_PROMPT = `分析这张图片，识别其中的UI设计元素。请以JSON格式返回结果，格式如下：
+{
+  "width": 图片宽度,
+  "height": 图片高度,
+  "elements": [
+    {
+      "type": "rectangle|circle|text|image|frame|line",
+      "x": 元素x坐标,
+      "y": 元素y坐标,
+      "width": 元素宽度,
+      "height": 元素高度,
+      "color": "十六进制颜色值如#FFFFFF",
+      "text": "如果是文本元素，填写文本内容",
+      "fontSize": 如果是文本元素，填写字体大小
+    }
+  ]
+}
+
+请尽量准确地识别图片中的按钮、文本、图片、容器等UI元素的位置、大小和颜色。只返回JSON，不要其他说明。`;
+
+/**
  * OpenAPI 服务配置
  */
 export interface OpenApiConfig {
@@ -160,26 +184,6 @@ export async function analyzeImageWithOpenApi(
  * 所有支持的提供商都使用 OpenAI 兼容的请求格式
  */
 function buildRequestBody(imageData: string, model: string): object {
-  const prompt = `分析这张图片，识别其中的UI设计元素。请以JSON格式返回结果，格式如下：
-{
-  "width": 图片宽度,
-  "height": 图片高度,
-  "elements": [
-    {
-      "type": "rectangle|circle|text|image|frame|line",
-      "x": 元素x坐标,
-      "y": 元素y坐标,
-      "width": 元素宽度,
-      "height": 元素高度,
-      "color": "十六进制颜色值如#FFFFFF",
-      "text": "如果是文本元素，填写文本内容",
-      "fontSize": 如果是文本元素，填写字体大小
-    }
-  ]
-}
-
-请尽量准确地识别图片中的按钮、文本、图片、容器等UI元素的位置、大小和颜色。只返回JSON，不要其他说明。`;
-
   return {
     model,
     messages: [
@@ -188,7 +192,7 @@ function buildRequestBody(imageData: string, model: string): object {
         content: [
           {
             type: "text",
-            text: prompt,
+            text: AI_ANALYSIS_PROMPT,
           },
           {
             type: "image_url",
@@ -254,16 +258,37 @@ function parseResponse(content: string): ImageAnalysisResult {
       parsed = JSON.parse(content);
     } catch {
       // 如果直接解析失败，查找代码块中的 JSON
-      const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+      const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (codeBlockMatch) {
         parsed = JSON.parse(codeBlockMatch[1]);
       } else {
-        // 尝试匹配第一个完整的 JSON 对象
-        const jsonMatch = content.match(/\{[^{}]*"elements"\s*:\s*\[[^\]]*\][^{}]*\}/);
-        if (!jsonMatch) {
+        // 尝试找到包含 "elements" 的 JSON 对象
+        // 使用更宽松的匹配方式：找到第一个 { 开始，向后搜索匹配的 }
+        const jsonStart = content.indexOf("{");
+        if (jsonStart === -1) {
           throw new Error("无法从响应中提取JSON");
         }
-        parsed = JSON.parse(jsonMatch[0]);
+        
+        // 从 jsonStart 开始，找到匹配的结束括号
+        let depth = 0;
+        let jsonEnd = -1;
+        for (let i = jsonStart; i < content.length; i++) {
+          if (content[i] === "{") depth++;
+          else if (content[i] === "}") {
+            depth--;
+            if (depth === 0) {
+              jsonEnd = i + 1;
+              break;
+            }
+          }
+        }
+        
+        if (jsonEnd === -1) {
+          throw new Error("无法从响应中提取完整的JSON对象");
+        }
+        
+        const jsonStr = content.substring(jsonStart, jsonEnd);
+        parsed = JSON.parse(jsonStr);
       }
     }
 

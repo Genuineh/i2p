@@ -9,7 +9,11 @@ import {
   type KeyboardEvent,
 } from "react";
 import "./app.css";
-import { analyzeImageWithOpenApi, getProviderDefaults } from "./openApiService";
+import { 
+  analyzeImageWithOpenApi, 
+  getProviderDefaults,
+  type ImageAnalysisResult 
+} from "./openApiService";
 
 // 支持的图片格式
 const SUPPORTED_FORMATS = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
@@ -106,6 +110,58 @@ const getSuggestionFromError = (errorMessage: string): string => {
   }
   return ERROR_SUGGESTIONS.default;
 };
+
+/**
+ * 调用 AI API 分析图片
+ * @returns 分析结果，如果成功返回 ImageAnalysisResult，失败返回 null 并设置错误状态
+ */
+async function performApiAnalysis(
+  imageData: string,
+  settings: Settings,
+  setUploadState: React.Dispatch<React.SetStateAction<UploadState>>
+): Promise<ImageAnalysisResult | null> {
+  const providerDefaults = getProviderDefaults(settings.openApiProvider);
+  
+  const analysisResult = await analyzeImageWithOpenApi(imageData, {
+    provider: settings.openApiProvider,
+    endpoint: settings.openApiEndpoint || providerDefaults.defaultEndpoint,
+    apiKey: settings.openApiKey,
+    model: settings.openApiModel || providerDefaults.defaultModel,
+  });
+
+  if (!analysisResult.success) {
+    setUploadState({
+      status: "error",
+      progress: 0,
+      message: analysisResult.error || "AI 分析失败",
+      suggestion: "请检查 API 配置或稍后重试",
+    });
+    return null;
+  }
+
+  return analysisResult;
+}
+
+/**
+ * 将分析结果发送给沙箱进行元素生成
+ */
+function sendResultToSandbox(
+  analysisResult: ImageAnalysisResult,
+  fileName: string,
+  imageData: string
+): void {
+  parent.postMessage(
+    {
+      pluginMessage: {
+        type: "openapi-analysis-result",
+        data: analysisResult,
+        fileName: fileName,
+        originalImageData: imageData,
+      },
+    },
+    "*"
+  );
+}
 
 const App = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -441,7 +497,6 @@ const App = () => {
       return;
     }
 
-    // 检查是否配置了 API 密钥
     if (!settings.openApiKey) {
       setUploadState({
         status: "error",
@@ -460,26 +515,8 @@ const App = () => {
     setUploadState({ status: "uploading", progress: 10, message: "正在使用 AI 分析图片..." });
 
     try {
-      // 获取提供商默认配置
-      const providerDefaults = getProviderDefaults(settings.openApiProvider);
-      
-      // 在 UI 层调用 API（因为 Pixso 沙箱不支持网络请求）
-      const analysisResult = await analyzeImageWithOpenApi(imagePreview, {
-        provider: settings.openApiProvider,
-        endpoint: settings.openApiEndpoint || providerDefaults.defaultEndpoint,
-        apiKey: settings.openApiKey,
-        model: settings.openApiModel || providerDefaults.defaultModel,
-      });
-
-      if (!analysisResult.success) {
-        setUploadState({
-          status: "error",
-          progress: 0,
-          message: analysisResult.error || "AI 分析失败",
-          suggestion: "请检查 API 配置或稍后重试",
-        });
-        return;
-      }
+      const analysisResult = await performApiAnalysis(imagePreview, settings, setUploadState);
+      if (!analysisResult) return;
 
       console.log("[i2p] AI 分析完成，发送结果到沙箱", {
         elementsCount: analysisResult.elements.length,
@@ -493,18 +530,7 @@ const App = () => {
         message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
       });
 
-      // 将分析结果发送给沙箱进行元素生成
-      parent.postMessage(
-        {
-          pluginMessage: {
-            type: "openapi-analysis-result",
-            data: analysisResult,
-            fileName: fileName,
-            originalImageData: imagePreview,
-          },
-        },
-        "*"
-      );
+      sendResultToSandbox(analysisResult, fileName, imagePreview);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "未知错误";
       console.error("[i2p] AI 分析失败:", errorMessage);
@@ -529,7 +555,6 @@ const App = () => {
       return;
     }
 
-    // 检查是否配置了 API 密钥
     if (!settings.openApiKey) {
       setUploadState({
         status: "error",
@@ -546,24 +571,12 @@ const App = () => {
       setUploadState({ status: "uploading", progress: 10, message: "正在重新分析图片..." });
       
       try {
-        const providerDefaults = getProviderDefaults(settings.openApiProvider);
-        
-        const analysisResult = await analyzeImageWithOpenApi(lastImageDataRef.current.data, {
-          provider: settings.openApiProvider,
-          endpoint: settings.openApiEndpoint || providerDefaults.defaultEndpoint,
-          apiKey: settings.openApiKey,
-          model: settings.openApiModel || providerDefaults.defaultModel,
-        });
-
-        if (!analysisResult.success) {
-          setUploadState({
-            status: "error",
-            progress: 0,
-            message: analysisResult.error || "AI 分析失败",
-            suggestion: "请检查 API 配置或稍后重试",
-          });
-          return;
-        }
+        const analysisResult = await performApiAnalysis(
+          lastImageDataRef.current.data, 
+          settings, 
+          setUploadState
+        );
+        if (!analysisResult) return;
 
         setUploadState({ 
           status: "uploading", 
@@ -571,16 +584,10 @@ const App = () => {
           message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
         });
 
-        parent.postMessage(
-          {
-            pluginMessage: {
-              type: "openapi-analysis-result",
-              data: analysisResult,
-              fileName: lastImageDataRef.current.name,
-              originalImageData: lastImageDataRef.current.data,
-            },
-          },
-          "*"
+        sendResultToSandbox(
+          analysisResult, 
+          lastImageDataRef.current.name, 
+          lastImageDataRef.current.data
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "未知错误";
