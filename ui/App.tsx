@@ -195,6 +195,7 @@ const App = () => {
 
       switch (msg.type) {
         case "processing":
+          console.log("[i2p] 处理进度:", msg.message, `(${msg.progress ?? DEFAULT_PROCESSING_PROGRESS}%)`);
           setUploadState({
             status: "uploading",
             progress: msg.progress ?? DEFAULT_PROCESSING_PROGRESS,
@@ -202,6 +203,7 @@ const App = () => {
           });
           break;
         case "complete":
+          console.log("[i2p] 处理完成:", msg.message);
           setUploadState({
             status: "success",
             progress: 100,
@@ -210,6 +212,7 @@ const App = () => {
           setRetryCount(0); // 成功后重置重试计数
           break;
         case "error":
+          console.error("[i2p] 处理错误:", msg.message, msg.suggestion || "");
           setUploadState({
             status: "error",
             progress: 0,
@@ -218,22 +221,22 @@ const App = () => {
           });
           break;
         case "host-ready":
-          console.log("Host 脚本已就绪:", msg.data);
+          console.log("[i2p] Host 脚本已就绪:", msg.data);
           break;
         case "host-unmounting":
-          console.log("Host 脚本即将卸载");
+          console.log("[i2p] Host 脚本即将卸载");
           break;
         case "host-status":
-          console.log("Host 状态:", msg.data);
+          console.log("[i2p] Host 状态:", msg.data);
           break;
         case "custom-action-result":
-          console.log("自定义操作结果:", msg.data);
+          console.log("[i2p] 自定义操作结果:", msg.data);
           break;
         case "sandbox-status":
-          console.log("Sandbox 状态:", msg.data);
+          console.log("[i2p] Sandbox 状态:", msg.data);
           break;
         case "sandbox-to-host":
-          console.log("Sandbox 请求转发到 Host:", msg.data);
+          console.log("[i2p] Sandbox 请求转发到 Host:", msg.data);
           break;
       }
     };
@@ -453,6 +456,11 @@ const App = () => {
       return;
     }
 
+    console.log("[i2p] 开始生成设计...", { 
+      fileName, 
+      mode: settings.processingMode,
+      imageSize: imagePreview.length 
+    });
     setUploadState({ status: "uploading", progress: 0, message: "正在生成设计..." });
 
     parent.postMessage(

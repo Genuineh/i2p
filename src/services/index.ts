@@ -67,18 +67,24 @@ export class ImageRecognitionManager {
   ): Promise<ImageAnalysisResult> {
     let result: ImageAnalysisResult;
 
+    console.log(`[ImageRecognition] 开始分析图片，使用模式: ${preferredService}`);
+
     // 根据首选服务类型决定处理顺序
     if (preferredService === "openapi" && this.openApiService) {
       // 尝试使用 OpenAPI 服务
+      console.log("[ImageRecognition] 调用 OpenAPI 服务...");
       result = await this.tryOpenApi(imageData);
       if (!result.success && this.config.enableLocalFallback) {
-        console.log("OpenAPI 服务失败，回退到本地处理器");
+        console.log("[ImageRecognition] OpenAPI 服务失败，回退到本地处理器");
         result = await this.tryLocal(imageData);
       }
     } else {
       // 默认使用本地处理器
+      console.log("[ImageRecognition] 调用本地处理器...");
       result = await this.tryLocal(imageData);
     }
+
+    console.log(`[ImageRecognition] 分析完成: success=${result.success}, elements=${result.elements.length}`);
 
     // 如果分析成功且启用了布局分析，添加布局信息
     if (result.success && enableLayoutAnalysis && result.elements.length > 0) {
