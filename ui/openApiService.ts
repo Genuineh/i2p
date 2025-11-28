@@ -248,19 +248,66 @@ async function sendRequest(config: OpenApiConfig, requestBody: object): Promise<
 }
 
 /**
+ * 修复常见的 JSON 格式问题
+ * - 将单引号替换为双引号
+ * - 为未加引号的属性名添加引号
+ * - 移除尾随逗号
+ */
+function fixJsonString(jsonStr: string): string {
+  // 移除可能的 BOM 和前后空白
+  let fixed = jsonStr.trim().replace(/^\uFEFF/, '');
+  
+  // 移除尾随逗号 (在 } 或 ] 之前的逗号)
+  fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+  
+  // 将未加引号的属性名添加引号
+  // 匹配: 属性名后跟冒号，但属性名没有被引号包围
+  fixed = fixed.replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
+  
+  // 将单引号替换为双引号（简化处理，可能不适用于所有情况）
+  // 但要注意不要替换字符串内部的单引号
+  // 这里使用简单的替换，假设 AI 返回的 JSON 中单引号只用于字符串边界
+  fixed = fixed.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+  
+  return fixed;
+}
+
+/**
  * 解析 API 响应
  */
 function parseResponse(content: string): ImageAnalysisResult {
   try {
     // 尝试从响应中提取 JSON
     let parsed: ApiResponse;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
+    
+    // 首先尝试直接解析
+    const tryParse = (str: string): ApiResponse | null => {
+      try {
+        return JSON.parse(str);
+      } catch {
+        // 尝试修复 JSON 后再解析
+        try {
+          return JSON.parse(fixJsonString(str));
+        } catch {
+          return null;
+        }
+      }
+    };
+    
+    // 尝试直接解析整个内容
+    const directResult = tryParse(content);
+    if (directResult) {
+      parsed = directResult;
+    } else {
       // 如果直接解析失败，查找代码块中的 JSON
       const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (codeBlockMatch) {
-        parsed = JSON.parse(codeBlockMatch[1]);
+        const codeBlockResult = tryParse(codeBlockMatch[1]);
+        if (codeBlockResult) {
+          parsed = codeBlockResult;
+        } else {
+          throw new Error("代码块中的JSON格式无效");
+        }
       } else {
         // 尝试找到包含 "elements" 的 JSON 对象
         // 使用更宽松的匹配方式：找到第一个 { 开始，向后搜索匹配的 }
@@ -288,7 +335,12 @@ function parseResponse(content: string): ImageAnalysisResult {
         }
         
         const jsonStr = content.substring(jsonStart, jsonEnd);
-        parsed = JSON.parse(jsonStr);
+        const extractedResult = tryParse(jsonStr);
+        if (extractedResult) {
+          parsed = extractedResult;
+        } else {
+          throw new Error("提取的JSON格式无效");
+        }
       }
     }
 

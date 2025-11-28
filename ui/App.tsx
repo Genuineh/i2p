@@ -163,6 +163,9 @@ function sendResultToSandbox(
   );
 }
 
+// 沙箱通信超时时间（毫秒）
+const SANDBOX_TIMEOUT_MS = 30000;
+
 const App = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
@@ -178,6 +181,7 @@ const App = () => {
   const [retryCount, setRetryCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImageDataRef = useRef<{ data: string; name: string } | null>(null);
+  const sandboxTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 加载保存的设置
   useEffect(() => {
@@ -239,6 +243,23 @@ const App = () => {
     setShowGuide(true);
   }, []);
 
+  // 清除沙箱通信超时
+  const clearSandboxTimeout = useCallback(() => {
+    if (sandboxTimeoutRef.current) {
+      clearTimeout(sandboxTimeoutRef.current);
+      sandboxTimeoutRef.current = null;
+    }
+  }, []);
+
+  // 组件卸载时清除超时
+  useEffect(() => {
+    return () => {
+      if (sandboxTimeoutRef.current) {
+        clearTimeout(sandboxTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 监听来自主线程的消息
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -247,6 +268,8 @@ const App = () => {
 
       switch (msg.type) {
         case "processing":
+          // 收到沙箱处理消息，清除超时
+          clearSandboxTimeout();
           console.log("[i2p] 处理进度:", msg.message, `(${msg.progress ?? DEFAULT_PROCESSING_PROGRESS}%)`);
           setUploadState({
             status: "uploading",
@@ -255,6 +278,8 @@ const App = () => {
           });
           break;
         case "complete":
+          // 收到完成消息，清除超时
+          clearSandboxTimeout();
           console.log("[i2p] 处理完成:", msg.message);
           setUploadState({
             status: "success",
@@ -264,6 +289,8 @@ const App = () => {
           setRetryCount(0); // 成功后重置重试计数
           break;
         case "error":
+          // 收到错误消息，清除超时
+          clearSandboxTimeout();
           console.error("[i2p] 处理错误:", msg.message, msg.suggestion || "");
           setUploadState({
             status: "error",
@@ -295,7 +322,7 @@ const App = () => {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [clearSandboxTimeout]);
 
   // 验证文件
   const validateFile = (file: File): { valid: boolean; error?: string; suggestion?: string } => {
@@ -507,6 +534,9 @@ const App = () => {
       return;
     }
 
+    // 清除之前的超时
+    clearSandboxTimeout();
+
     console.log("[i2p] 开始生成设计...", { 
       fileName, 
       provider: settings.openApiProvider,
@@ -530,6 +560,17 @@ const App = () => {
         message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
       });
 
+      // 设置沙箱通信超时
+      sandboxTimeoutRef.current = setTimeout(() => {
+        console.warn("[i2p] 沙箱响应超时");
+        setUploadState({
+          status: "error",
+          progress: 0,
+          message: "沙箱处理超时",
+          suggestion: "请点击重试或刷新插件后重新操作",
+        });
+      }, SANDBOX_TIMEOUT_MS);
+
       sendResultToSandbox(analysisResult, fileName, imagePreview);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "未知错误";
@@ -541,7 +582,7 @@ const App = () => {
         suggestion: "请检查网络连接和 API 配置",
       });
     }
-  }, [imagePreview, fileName, settings]);
+  }, [imagePreview, fileName, settings, clearSandboxTimeout]);
 
   // 重试操作
   const handleRetry = useCallback(async () => {
@@ -565,6 +606,9 @@ const App = () => {
       return;
     }
 
+    // 清除之前的超时
+    clearSandboxTimeout();
+
     setRetryCount((prev) => prev + 1);
 
     if (lastImageDataRef.current) {
@@ -584,6 +628,17 @@ const App = () => {
           message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
         });
 
+        // 设置沙箱通信超时
+        sandboxTimeoutRef.current = setTimeout(() => {
+          console.warn("[i2p] 沙箱响应超时");
+          setUploadState({
+            status: "error",
+            progress: 0,
+            message: "沙箱处理超时",
+            suggestion: "请点击重试或刷新插件后重新操作",
+          });
+        }, SANDBOX_TIMEOUT_MS);
+
         sendResultToSandbox(
           analysisResult, 
           lastImageDataRef.current.name, 
@@ -599,10 +654,12 @@ const App = () => {
         });
       }
     }
-  }, [retryCount, settings]);
+  }, [retryCount, settings, clearSandboxTimeout]);
 
   // 清除图片
   const handleClear = useCallback(() => {
+    // 清除超时
+    clearSandboxTimeout();
     setImagePreview(null);
     setFileName("");
     setUploadState({ status: "idle", progress: 0, message: "" });
@@ -611,12 +668,17 @@ const App = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  }, []);
+  }, [clearSandboxTimeout]);
 
   // 取消操作
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
+    // 清除超时
+    clearSandboxTimeout();
+    // 重置 UI 状态
+    setUploadState({ status: "idle", progress: 0, message: "" });
+    // 发送取消消息到沙箱
     parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
-  };
+  }, [clearSandboxTimeout]);
 
   return (
     <div className="main-wrapper">
