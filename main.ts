@@ -357,6 +357,8 @@ async function ensureFontLoaded(): Promise<void> {
 // 默认超时时间（毫秒）
 const DEFAULT_ANALYSIS_TIMEOUT = 30000; // 30秒
 const OPENAPI_ANALYSIS_TIMEOUT = 60000; // OpenAPI 模式 60秒
+// 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
+const CLOSE_PLUGIN_DELAY_MS = 100;
 
 /**
  * 带超时的 Promise 包装器
@@ -477,7 +479,8 @@ async function handleImageUpload(
         message: "未配置 API 密钥",
         suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
       });
-      pixso.closePlugin();
+      // 延迟关闭插件，确保 UI 有时间接收并处理消息
+      setTimeout(() => pixso.closePlugin(), CLOSE_PLUGIN_DELAY_MS);
       return;
     }
 
@@ -581,7 +584,8 @@ async function handleImageUpload(
     });
   }
 
-  pixso.closePlugin();
+  // 延迟关闭插件，确保 UI 有时间接收并处理消息
+  setTimeout(() => pixso.closePlugin(), CLOSE_PLUGIN_DELAY_MS);
 }
 
 /**
