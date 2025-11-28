@@ -287,6 +287,21 @@ async function ensureFontLoaded(): Promise<void> {
 // 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
 const CLOSE_PLUGIN_DELAY_MS = 100;
 
+// 进度更新相关常量
+const PROGRESS = {
+  // 沙箱收到数据后的初始进度
+  INITIAL_PROCESSING: 55,
+  // 开始生成元素时的进度
+  ELEMENT_GENERATION_START: 60,
+  // 元素生成完成时的最大进度
+  ELEMENT_GENERATION_MAX: 85,
+  // 元素生成进度范围
+  ELEMENT_GENERATION_RANGE: 25, // MAX - START
+  // 进度更新间隔：至少每 5 个元素或每 10% 更新一次
+  MIN_UPDATE_INTERVAL: 5,
+  UPDATE_PERCENTAGE: 10,
+};
+
 pixso.showUI(__html__, { width: 400, height: 560 });
 
 // 初始化 Host 通信
@@ -374,7 +389,7 @@ async function handleOpenApiAnalysisResult(
   pixso.ui.postMessage({ 
     type: "processing", 
     message: "沙箱已收到数据，正在处理...", 
-    progress: 55 
+    progress: PROGRESS.INITIAL_PROCESSING 
   });
   
   logger.info("OpenApiResult", "收到 AI 分析结果", {
@@ -480,8 +495,14 @@ async function generateDesignElements(
   let successCount = 0;
   let failCount = 0;
   
-  // 计算进度更新间隔：每处理 10% 的元素或至少每 5 个元素发送一次进度更新
-  const progressUpdateInterval = Math.max(1, Math.min(5, Math.floor(totalElements / 10)));
+  // 计算进度更新间隔：每处理一定百分比的元素或至少每 N 个元素发送一次进度更新
+  const progressUpdateInterval = Math.max(
+    1, 
+    Math.min(
+      PROGRESS.MIN_UPDATE_INTERVAL, 
+      Math.floor(totalElements / PROGRESS.UPDATE_PERCENTAGE)
+    )
+  );
 
   for (let i = 0; i < analysisResult.elements.length; i++) {
     const element = analysisResult.elements[i];
@@ -512,7 +533,10 @@ async function generateDesignElements(
     
     // 定期发送进度更新，防止 UI 超时
     if ((i + 1) % progressUpdateInterval === 0 || i === totalElements - 1) {
-      const progress = Math.min(85, 60 + Math.floor(((i + 1) / totalElements) * 25));
+      const progress = Math.min(
+        PROGRESS.ELEMENT_GENERATION_MAX, 
+        PROGRESS.ELEMENT_GENERATION_START + Math.floor(((i + 1) / totalElements) * PROGRESS.ELEMENT_GENERATION_RANGE)
+      );
       pixso.ui.postMessage({ 
         type: "processing", 
         message: `正在生成设计元素... (${i + 1}/${totalElements})`, 
