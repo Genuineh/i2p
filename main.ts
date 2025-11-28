@@ -287,6 +287,9 @@ async function ensureFontLoaded(): Promise<void> {
 // 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
 const CLOSE_PLUGIN_DELAY_MS = 100;
 
+// 文本节点名称的最大长度
+const MAX_TEXT_NAME_LENGTH = 20;
+
 // 进度更新相关常量
 const PROGRESS = {
   // 沙箱收到数据后的初始进度
@@ -613,6 +616,7 @@ async function createElementNode(
       rect.x = element.x;
       rect.y = element.y;
       rect.resize(element.width || 100, element.height || 100);
+      rect.name = element.type === "frame" ? "Frame" : "Rectangle";
 
       // 应用填充（支持渐变）
       rect.fills = createFills(color, element.gradient);
@@ -625,6 +629,7 @@ async function createElementNode(
       ellipse.x = element.x;
       ellipse.y = element.y;
       ellipse.resize(element.width || 100, element.height || 100);
+      ellipse.name = "Circle";
 
       // 应用填充（支持渐变）
       ellipse.fills = createFills(color, element.gradient);
@@ -638,7 +643,11 @@ async function createElementNode(
       text.y = element.y;
       // 使用缓存的字体加载
       await ensureFontLoaded();
-      text.characters = element.text || "Text";
+      const textContent = element.text || "Text";
+      text.characters = textContent;
+      // 设置节点名称为文本内容（截取前N个字符）
+      const truncatedName = textContent.substring(0, MAX_TEXT_NAME_LENGTH);
+      text.name = textContent.length > MAX_TEXT_NAME_LENGTH ? truncatedName + "..." : truncatedName;
       if (element.fontSize) {
         text.fontSize = element.fontSize;
       }
@@ -651,6 +660,7 @@ async function createElementNode(
       line.x = element.x;
       line.y = element.y;
       line.resize(element.width || 100, 0);
+      line.name = "Line";
       line.strokes = [{ type: "SOLID", color: { r: color.r, g: color.g, b: color.b } }];
       return line;
     }
@@ -669,25 +679,28 @@ async function createElementNode(
 /**
  * 创建图片节点
  * @param element - 识别到的图片元素
- * @param originalImageData - 原始图片数据（用于区域裁剪）
+ * @param _originalImageData - 原始图片数据（预留参数，暂未使用）
  * @returns 创建的节点
  */
 async function createImageNode(
   element: RecognizedElement,
-  originalImageData: string
+  _originalImageData: string
 ): Promise<SceneNode | null> {
   try {
-    // 如果元素有自己的图片数据，使用它
-    const imageDataToUse = element.imageData || originalImageData;
-
-    if (!imageDataToUse) {
-      // 如果没有图片数据，创建占位符
-      logger.warn("ElementGeneration", "图片数据为空，创建占位符");
+    // 只有当元素有自己的图片数据时才创建图片节点
+    // 如果元素没有图片数据（如AI识别的图片区域），创建占位符
+    if (!element.imageData) {
+      logger.info("ElementGeneration", "图片元素无具体图片数据，创建占位符", {
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+      });
       return createImagePlaceholder(element);
     }
 
     // 从 Base64 数据创建图片
-    const imageBytes = base64ToUint8Array(imageDataToUse);
+    const imageBytes = base64ToUint8Array(element.imageData);
     const image = pixso.createImage(imageBytes);
 
     // 创建矩形并设置图片填充
@@ -717,6 +730,18 @@ async function createImageNode(
 }
 
 /**
+ * 从 ColorInfo 转换为 RGB 对象
+ * @param color - 颜色信息
+ * @returns RGB 对象
+ */
+function toRgb(color: ColorInfo): { r: number; g: number; b: number } {
+  return { r: color.r, g: color.g, b: color.b };
+}
+
+// 默认的占位符颜色
+const DEFAULT_PLACEHOLDER_COLOR = { r: 0.9, g: 0.9, b: 0.9 };
+
+/**
  * 创建图片占位符
  * @param element - 元素信息
  * @returns 占位符节点
@@ -726,7 +751,11 @@ function createImagePlaceholder(element: RecognizedElement): SceneNode {
   rect.x = element.x;
   rect.y = element.y;
   rect.resize(element.width || 100, element.height || 100);
-  rect.fills = [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9 } }];
+  
+  // 使用元素的颜色（如果有），否则使用默认的浅灰色
+  const fillColor = element.color ? toRgb(element.color) : DEFAULT_PLACEHOLDER_COLOR;
+  
+  rect.fills = [{ type: "SOLID", color: fillColor }];
   rect.strokes = [{ type: "SOLID", color: { r: 0.7, g: 0.7, b: 0.7 } }];
   rect.strokeWeight = 1;
   rect.name = "Image Placeholder";
