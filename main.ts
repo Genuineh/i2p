@@ -11,6 +11,14 @@ import {
   LayoutConstraints,
   ConstraintType,
 } from "./src/services";
+import { logger, LogLevel } from "./src/utils";
+
+// 配置日志记录器
+logger.configure({
+  minLevel: LogLevel.DEBUG,
+  maxEntries: 500,
+  enableConsole: true,
+});
 
 /**
  * Host 消息类型定义
@@ -23,13 +31,42 @@ interface HostMessage {
 }
 
 /**
+ * 错误类型枚举
+ */
+enum ProcessErrorType {
+  IMAGE_ANALYSIS = "IMAGE_ANALYSIS",
+  ELEMENT_CREATION = "ELEMENT_CREATION",
+  FONT_LOADING = "FONT_LOADING",
+  UNKNOWN = "UNKNOWN",
+}
+
+/**
+ * 获取错误建议
+ */
+function getErrorSuggestion(errorType: ProcessErrorType, errorMessage: string): string {
+  switch (errorType) {
+    case ProcessErrorType.IMAGE_ANALYSIS:
+      return "请尝试使用更清晰的图片，或调整图片大小后重新上传";
+    case ProcessErrorType.ELEMENT_CREATION:
+      return "设计元素创建失败，请尝试使用其他图片";
+    case ProcessErrorType.FONT_LOADING:
+      return "字体加载失败，部分文本可能无法正确显示";
+    default:
+      if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
+        return "网络连接失败，请检查网络后重试";
+      }
+      return "请刷新插件后重试，如问题持续请联系支持";
+  }
+}
+
+/**
  * Host 通信管理器
  * 处理与 Host 脚本的双向通信
- * 
+ *
  * 通信架构说明：
  * - Host -> Sandbox: hostApi.sandbox.postMessage(message)
  * - Sandbox -> Host: 通过 UI 层转发，或等待 Host 主动轮询
- * 
+ *
  * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host，
  * 而是通过以下方式实现间接通信：
  * 1. Host 主动发送心跳/状态查询
@@ -48,12 +85,12 @@ class HostCommunicationManager {
   init(): void {
     // 监听来自 Host 的消息（通过 UI 转发）
     pixso.on("run", () => {
-      console.log("Sandbox 运行中，等待 Host 就绪");
+      logger.info("HostCommunication", "Sandbox 运行中，等待 Host 就绪");
     });
 
     // Host 会在 mounted 时发送 host-ready 消息
     // sandbox 通过 UI 接收这些消息
-    console.log("HostCommunicationManager 已初始化，等待 Host 消息");
+    logger.info("HostCommunication", "HostCommunicationManager 已初始化，等待 Host 消息");
   }
 
   /**
@@ -61,12 +98,12 @@ class HostCommunicationManager {
    * 这些消息通过 hostApi.sandbox.postMessage 发送，并由 pixso.ui.onmessage 接收
    */
   handleHostMessage(message: HostMessage): void {
-    console.log("Sandbox 收到 Host 消息:", message);
+    logger.debug("HostCommunication", "Sandbox 收到 Host 消息", { type: message.type });
 
     switch (message.type) {
       case "host-ready":
         this.hostReady = true;
-        console.log("Host 已就绪，版本:", message.data?.version);
+        logger.info("HostCommunication", "Host 已就绪", { version: message.data?.version });
         // 通知 UI Host 已就绪
         pixso.ui.postMessage({
           type: "host-ready",
@@ -78,12 +115,12 @@ class HostCommunicationManager {
 
       case "pong":
         this.hostReady = true;
-        console.log("Host 心跳响应正常");
+        logger.debug("HostCommunication", "Host 心跳响应正常");
         break;
 
       case "host-unmounting":
         this.hostReady = false;
-        console.log("Host 即将卸载");
+        logger.info("HostCommunication", "Host 即将卸载");
         // 通知 UI Host 即将卸载
         pixso.ui.postMessage({
           type: "host-unmounting",
@@ -91,7 +128,7 @@ class HostCommunicationManager {
         break;
 
       case "host-status-response":
-        console.log("Host 状态:", message.data);
+        logger.debug("HostCommunication", "Host 状态", { data: message.data });
         // 通知 UI Host 状态
         pixso.ui.postMessage({
           type: "host-status",
@@ -101,7 +138,7 @@ class HostCommunicationManager {
         break;
 
       case "custom-action-result":
-        console.log("自定义操作结果:", message.data);
+        logger.debug("HostCommunication", "自定义操作结果", { data: message.data });
         // 通知 UI 自定义操作结果
         pixso.ui.postMessage({
           type: "custom-action-result",
@@ -111,7 +148,7 @@ class HostCommunicationManager {
         break;
 
       default:
-        console.log("未处理的 Host 消息:", message.type);
+        logger.warn("HostCommunication", "未处理的 Host 消息", { type: message.type });
     }
   }
 
@@ -136,7 +173,7 @@ class HostCommunicationManager {
 
   /**
    * 发送消息到 Host（通过 UI 转发）
-   * 
+   *
    * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host。
    * 消息会被转发到 UI，再由 UI 发送到 Host（如果需要）。
    * 或者等待 Host 主动轮询时响应。
@@ -147,15 +184,13 @@ class HostCommunicationManager {
       // 检查队列是否已满，防止内存泄漏
       if (this.pendingMessages.length >= HostCommunicationManager.MAX_PENDING_MESSAGES) {
         const droppedMessage = this.pendingMessages.shift();
-        console.warn(
-          "待处理消息队列已满，丢弃最早的消息:",
-          droppedMessage?.type,
-          "时间戳:",
-          droppedMessage?.timestamp
-        );
+        logger.warn("HostCommunication", "待处理消息队列已满，丢弃最早的消息", {
+          type: droppedMessage?.type,
+          timestamp: droppedMessage?.timestamp,
+        });
       }
       this.pendingMessages.push(message);
-      console.log("Host 未就绪，消息已加入队列:", message.type);
+      logger.debug("HostCommunication", "Host 未就绪，消息已加入队列", { type: message.type });
       return;
     }
 
@@ -165,7 +200,7 @@ class HostCommunicationManager {
       type: "sandbox-to-host",
       data: message,
     });
-    console.log("消息已转发到 UI（目标: Host）:", message);
+    logger.debug("HostCommunication", "消息已转发到 UI（目标: Host）", { message });
   }
 
   /**
@@ -257,23 +292,36 @@ async function ensureFontLoaded(): Promise<void> {
   if (fontLoaded) return;
 
   if (!fontLoadPromise) {
+    logger.debug("FontLoader", "开始加载字体");
     fontLoadPromise = pixso
       .loadFontAsync({ family: "Inter", style: "Regular" })
-      .catch(() => pixso.loadFontAsync({ family: "Arial", style: "Regular" }))
+      .catch(() => {
+        logger.warn("FontLoader", "Inter 字体加载失败，尝试 Arial");
+        return pixso.loadFontAsync({ family: "Arial", style: "Regular" });
+      })
       .then(() => {
         fontLoaded = true;
+        logger.info("FontLoader", "字体加载完成");
+      })
+      .catch((error) => {
+        logger.error("FontLoader", "所有字体加载失败", { error });
+        throw error;
       });
   }
 
   return fontLoadPromise;
 }
 
-pixso.showUI(__html__, { width: 400, height: 520 });
+pixso.showUI(__html__, { width: 400, height: 560 });
 
 // 初始化 Host 通信
 hostCommunication.init();
 
+logger.info("Main", "插件初始化完成");
+
 pixso.ui.onmessage = async (msg) => {
+  logger.debug("Main", "收到 UI 消息", { type: msg.type });
+
   // 检查是否为 Host 消息转发
   if (msg.type === "host-message") {
     hostCommunication.handleHostMessage(msg.data);
@@ -314,6 +362,7 @@ pixso.ui.onmessage = async (msg) => {
     pixso.viewport.scrollAndZoomIntoView(nodes);
     pixso.closePlugin();
   } else if (msg.type === "cancel") {
+    logger.info("Main", "用户取消操作");
     pixso.closePlugin();
   }
 };
@@ -324,25 +373,39 @@ pixso.ui.onmessage = async (msg) => {
  * @param fileName - 文件名
  */
 async function handleImageUpload(imageData: string, fileName: string): Promise<void> {
-  console.log("Received image:", fileName);
+  const startTime = Date.now();
+  logger.info("ImageUpload", "开始处理图片", { fileName });
 
   // 通知 UI 开始处理
-  pixso.ui.postMessage({ type: "processing", message: "正在分析图片..." });
+  pixso.ui.postMessage({ type: "processing", message: "正在分析图片...", progress: 10 });
 
   try {
     // 使用图片识别服务分析图片
     // 默认使用本地处理器，如需使用 OpenAPI 服务，可改为 'openapi'
     // 启用布局分析以生成响应式约束
+    logger.debug("ImageUpload", "开始图片分析");
+    pixso.ui.postMessage({ type: "processing", message: "正在识别图片内容...", progress: 30 });
+
     const analysisResult = await imageRecognitionManager.analyze(imageData, "local", true);
 
     if (!analysisResult.success) {
-      throw new Error(analysisResult.error || "图片分析失败");
+      const error = new Error(analysisResult.error || "图片分析失败");
+      logger.error("ImageUpload", "图片分析失败", { error: analysisResult.error });
+      throw error;
     }
 
-    console.log("分析结果:", analysisResult);
+    logger.info("ImageUpload", "图片分析完成", {
+      elementsCount: analysisResult.elements.length,
+      width: analysisResult.width,
+      height: analysisResult.height,
+    });
 
     // 根据分析结果生成设计元素
+    pixso.ui.postMessage({ type: "processing", message: "正在生成设计元素...", progress: 60 });
+
     const nodes = await generateDesignElements(analysisResult, fileName, imageData);
+
+    logger.info("ImageUpload", "设计元素生成完成", { nodesCount: nodes.length });
 
     // 选中生成的元素并调整视图
     if (nodes.length > 0) {
@@ -350,15 +413,36 @@ async function handleImageUpload(imageData: string, fileName: string): Promise<v
       pixso.viewport.scrollAndZoomIntoView(nodes);
     }
 
+    const duration = Date.now() - startTime;
+    logger.info("ImageUpload", "图片处理完成", {
+      duration: `${duration}ms`,
+      elementsCreated: nodes.length,
+    });
+
     // 通知 UI 处理完成
     pixso.ui.postMessage({
       type: "complete",
-      message: `设计生成完成，共创建 ${nodes.length} 个元素`,
+      message: `设计生成完成，共创建 ${nodes.length} 个元素（耗时 ${(duration / 1000).toFixed(1)}s）`,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "未知错误";
-    console.error("图片处理失败:", errorMessage);
-    pixso.ui.postMessage({ type: "error", message: `处理失败: ${errorMessage}` });
+    const errorType =
+      error instanceof Error && errorMessage.includes("分析")
+        ? ProcessErrorType.IMAGE_ANALYSIS
+        : ProcessErrorType.UNKNOWN;
+
+    logger.error("ImageUpload", "图片处理失败", {
+      error: errorMessage,
+      errorType,
+      duration: `${Date.now() - startTime}ms`,
+    });
+
+    const suggestion = getErrorSuggestion(errorType, errorMessage);
+    pixso.ui.postMessage({
+      type: "error",
+      message: `处理失败: ${errorMessage}`,
+      suggestion,
+    });
   }
 
   pixso.closePlugin();
@@ -378,6 +462,10 @@ async function generateDesignElements(
 ): Promise<SceneNode[]> {
   const nodes: SceneNode[] = [];
 
+  logger.debug("ElementGeneration", "开始生成设计元素", {
+    elementsCount: analysisResult.elements.length,
+  });
+
   // 创建一个 Frame 作为容器
   const frame = pixso.createFrame();
   frame.name = fileName || "Uploaded Image Design";
@@ -389,23 +477,41 @@ async function generateDesignElements(
   nodes.push(frame);
 
   // 遍历识别到的元素并创建对应的 Pixso 元素
+  let successCount = 0;
+  let failCount = 0;
+
   for (const element of analysisResult.elements) {
-    const node = await createElementNode(element, originalImageData);
-    if (node) {
-      // 应用布局约束
-      if (element.layout?.constraints) {
-        applyConstraints(node, element.layout.constraints);
-      }
+    try {
+      const node = await createElementNode(element, originalImageData);
+      if (node) {
+        // 应用布局约束
+        if (element.layout?.constraints) {
+          applyConstraints(node, element.layout.constraints);
+        }
 
-      // 应用效果（阴影、模糊）
-      if (element.effects && element.effects.length > 0) {
-        applyEffects(node, element.effects);
-      }
+        // 应用效果（阴影、模糊）
+        if (element.effects && element.effects.length > 0) {
+          applyEffects(node, element.effects);
+        }
 
-      frame.appendChild(node);
-      nodes.push(node);
+        frame.appendChild(node);
+        nodes.push(node);
+        successCount++;
+      }
+    } catch (error) {
+      failCount++;
+      logger.warn("ElementGeneration", "创建元素失败", {
+        elementType: element.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
+
+  logger.info("ElementGeneration", "元素生成完成", {
+    success: successCount,
+    failed: failCount,
+    total: analysisResult.elements.length,
+  });
 
   return nodes;
 }
@@ -477,6 +583,7 @@ async function createElementNode(
     }
 
     default:
+      logger.warn("ElementGeneration", "未知的元素类型", { type: element.type });
       return null;
   }
 }
@@ -497,6 +604,7 @@ async function createImageNode(
 
     if (!imageDataToUse) {
       // 如果没有图片数据，创建占位符
+      logger.warn("ElementGeneration", "图片数据为空，创建占位符");
       return createImagePlaceholder(element);
     }
 
@@ -522,7 +630,9 @@ async function createImageNode(
 
     return rect;
   } catch (error) {
-    console.error("创建图片节点失败:", error);
+    logger.error("ElementGeneration", "创建图片节点失败", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     // 失败时返回占位符
     return createImagePlaceholder(element);
   }
