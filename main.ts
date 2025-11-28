@@ -37,6 +37,8 @@ enum ProcessErrorType {
   IMAGE_ANALYSIS = "IMAGE_ANALYSIS",
   ELEMENT_CREATION = "ELEMENT_CREATION",
   FONT_LOADING = "FONT_LOADING",
+  TIMEOUT = "TIMEOUT",
+  CANVAS_ERROR = "CANVAS_ERROR",
   UNKNOWN = "UNKNOWN",
 }
 
@@ -51,9 +53,19 @@ function getErrorSuggestion(errorType: ProcessErrorType, errorMessage: string): 
       return "设计元素创建失败，请尝试使用其他图片";
     case ProcessErrorType.FONT_LOADING:
       return "字体加载失败，部分文本可能无法正确显示";
+    case ProcessErrorType.TIMEOUT:
+      return "处理超时，请尝试使用较小的图片或切换处理模式";
+    case ProcessErrorType.CANVAS_ERROR:
+      return "沙箱环境不支持本地图片处理，请使用 OpenAPI 模式";
     default:
       if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
         return "网络连接失败，请检查网络后重试";
+      }
+      if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
+        return "处理超时，请尝试使用较小的图片或切换处理模式";
+      }
+      if (errorMessage.includes("Canvas") || errorMessage.includes("canvas")) {
+        return "沙箱环境不支持本地图片处理，请使用 OpenAPI 模式";
       }
       return "请刷新插件后重试，如问题持续请联系支持";
   }
@@ -282,17 +294,25 @@ function updateRecognitionConfig(settings: UISettings): void {
   // 只有在 OpenAPI 模式下才设置 OpenAPI 相关配置
   const isOpenApiMode = settings.processingMode === "openapi";
 
-  recognitionConfig = {
+  // 基础配置
+  const baseConfig: ImageRecognitionConfig = {
     enableLocalFallback: true,
     colorThreshold: 30,
     minRegionSize: 20,
-    // 只在 OpenAPI 模式下设置相关配置
-    openApiProvider: isOpenApiMode ? settings.openApiProvider : undefined,
-    openApiEndpoint:
-      isOpenApiMode && settings.openApiEndpoint ? settings.openApiEndpoint : undefined,
-    openApiKey: isOpenApiMode && settings.openApiKey ? settings.openApiKey : undefined,
-    openApiModel: isOpenApiMode && settings.openApiModel ? settings.openApiModel : undefined,
   };
+
+  // 如果是 OpenAPI 模式，添加 OpenAPI 相关配置
+  if (isOpenApiMode) {
+    recognitionConfig = {
+      ...baseConfig,
+      openApiProvider: settings.openApiProvider,
+      openApiEndpoint: settings.openApiEndpoint || undefined,
+      openApiKey: settings.openApiKey || undefined,
+      openApiModel: settings.openApiModel || undefined,
+    };
+  } else {
+    recognitionConfig = baseConfig;
+  }
 
   // 重新创建图片识别管理器
   imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
@@ -332,6 +352,38 @@ async function ensureFontLoaded(): Promise<void> {
   }
 
   return fontLoadPromise;
+}
+
+// 默认超时时间（毫秒）
+const DEFAULT_ANALYSIS_TIMEOUT = 30000; // 30秒
+const OPENAPI_ANALYSIS_TIMEOUT = 60000; // OpenAPI 模式 60秒
+
+/**
+ * 带超时的 Promise 包装器
+ * @param promise - 要执行的 Promise
+ * @param timeoutMs - 超时时间（毫秒）
+ * @param timeoutMessage - 超时错误信息
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }
 
 pixso.showUI(__html__, { width: 400, height: 560 });
@@ -419,7 +471,7 @@ async function handleImageUpload(
   try {
     // 检查 OpenAPI 模式下是否配置了 API 密钥
     if (processingMode === "openapi" && !settings?.openApiKey) {
-      logger.warn("ImageUpload", "OpenAPI 模式未配置 API 密钥，回退到本地处理");
+      logger.warn("ImageUpload", "OpenAPI 模式未配置 API 密钥，终止处理");
       pixso.ui.postMessage({
         type: "error",
         message: "未配置 API 密钥",
@@ -440,7 +492,20 @@ async function handleImageUpload(
         : "正在使用本地处理器分析图片...";
     pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 30 });
 
-    const analysisResult = await imageRecognitionManager.analyze(imageData, processingMode, true);
+    // 根据处理模式选择超时时间
+    const timeoutMs =
+      processingMode === "openapi" ? OPENAPI_ANALYSIS_TIMEOUT : DEFAULT_ANALYSIS_TIMEOUT;
+    const timeoutMessage =
+      processingMode === "openapi"
+        ? "AI 分析超时，请检查网络连接或稍后重试"
+        : "本地图片分析超时，可能是沙箱环境不支持 Canvas API";
+
+    // 使用超时包装器执行分析
+    const analysisResult = await withTimeout(
+      imageRecognitionManager.analyze(imageData, processingMode, true),
+      timeoutMs,
+      timeoutMessage
+    );
 
     if (!analysisResult.success) {
       const error = new Error(analysisResult.error || "图片分析失败");
@@ -480,10 +545,16 @@ async function handleImageUpload(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "未知错误";
-    const errorType =
-      error instanceof Error && errorMessage.includes("分析")
-        ? ProcessErrorType.IMAGE_ANALYSIS
-        : ProcessErrorType.UNKNOWN;
+
+    // 根据错误信息确定错误类型
+    let errorType = ProcessErrorType.UNKNOWN;
+    if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
+      errorType = ProcessErrorType.TIMEOUT;
+    } else if (errorMessage.includes("Canvas") || errorMessage.includes("canvas")) {
+      errorType = ProcessErrorType.CANVAS_ERROR;
+    } else if (errorMessage.includes("分析")) {
+      errorType = ProcessErrorType.IMAGE_ANALYSIS;
+    }
 
     logger.error("ImageUpload", "图片处理失败", {
       error: errorMessage,
