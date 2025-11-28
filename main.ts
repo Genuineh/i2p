@@ -489,8 +489,8 @@ async function handleImageUpload(
     const modeMessage =
       processingMode === "openapi"
         ? "正在使用 AI 识别图片内容..."
-        : "正在使用本地处理器分析图片...";
-    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 20 });
+        : "正在加载并分析图片...";
+    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 25 });
 
     // 根据处理模式选择超时时间
     const timeoutMs =
@@ -499,9 +499,6 @@ async function handleImageUpload(
       processingMode === "openapi"
         ? "AI 分析超时，请检查网络连接或稍后重试"
         : "本地图片分析超时，可能是沙箱环境不支持 Canvas API";
-
-    // 发送进度更新以保持用户知道处理正在进行
-    pixso.ui.postMessage({ type: "processing", message: "正在加载图片数据...", progress: 25 });
 
     // 使用超时包装器执行分析
     logger.debug("ImageUpload", "调用图片识别服务");

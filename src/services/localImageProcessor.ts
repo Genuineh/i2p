@@ -112,7 +112,7 @@ export class LocalImageProcessor implements IImageRecognitionService {
 
   /**
    * 加载图片
-   * 添加超时机制，防止在沙箱环境中 onload/onerror 不触发导致 Promise 永远挂起
+   * 添加超时机制，防止在沙箱环境中 onload/onerror 事件未触发导致 Promise 永远挂起
    */
   private loadImage(imageData: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
