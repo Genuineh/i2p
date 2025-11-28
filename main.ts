@@ -287,6 +287,9 @@ async function ensureFontLoaded(): Promise<void> {
 // 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
 const CLOSE_PLUGIN_DELAY_MS = 100;
 
+// 文本节点名称的最大长度
+const MAX_TEXT_NAME_LENGTH = 20;
+
 // 进度更新相关常量
 const PROGRESS = {
   // 沙箱收到数据后的初始进度
@@ -642,8 +645,9 @@ async function createElementNode(
       await ensureFontLoaded();
       const textContent = element.text || "Text";
       text.characters = textContent;
-      // 设置节点名称为文本内容（截取前20个字符）
-      text.name = textContent.substring(0, 20) + (textContent.length > 20 ? "..." : "");
+      // 设置节点名称为文本内容（截取前N个字符）
+      const truncatedName = textContent.substring(0, MAX_TEXT_NAME_LENGTH);
+      text.name = textContent.length > MAX_TEXT_NAME_LENGTH ? truncatedName + "..." : truncatedName;
       if (element.fontSize) {
         text.fontSize = element.fontSize;
       }
@@ -726,6 +730,18 @@ async function createImageNode(
 }
 
 /**
+ * 从 ColorInfo 转换为 RGB 对象
+ * @param color - 颜色信息
+ * @returns RGB 对象
+ */
+function toRgb(color: ColorInfo): { r: number; g: number; b: number } {
+  return { r: color.r, g: color.g, b: color.b };
+}
+
+// 默认的占位符颜色
+const DEFAULT_PLACEHOLDER_COLOR = { r: 0.9, g: 0.9, b: 0.9 };
+
+/**
  * 创建图片占位符
  * @param element - 元素信息
  * @returns 占位符节点
@@ -737,9 +753,7 @@ function createImagePlaceholder(element: RecognizedElement): SceneNode {
   rect.resize(element.width || 100, element.height || 100);
   
   // 使用元素的颜色（如果有），否则使用默认的浅灰色
-  const fillColor = element.color 
-    ? { r: element.color.r, g: element.color.g, b: element.color.b }
-    : { r: 0.9, g: 0.9, b: 0.9 };
+  const fillColor = element.color ? toRgb(element.color) : DEFAULT_PLACEHOLDER_COLOR;
   
   rect.fills = [{ type: "SOLID", color: fillColor }];
   rect.strokes = [{ type: "SOLID", color: { r: 0.7, g: 0.7, b: 0.7 } }];
