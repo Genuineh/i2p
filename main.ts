@@ -12,7 +12,7 @@ import { logger, LogLevel } from "./src/utils";
 
 // 配置日志记录器
 logger.configure({
-  minLevel: LogLevel.DEBUG,
+  minLevel: LogLevel.INFO,
   maxEntries: 500,
   enableConsole: true,
 });
@@ -98,7 +98,7 @@ class HostCommunicationManager {
    * 这些消息通过 hostApi.sandbox.postMessage 发送，并由 pixso.ui.onmessage 接收
    */
   handleHostMessage(message: HostMessage): void {
-    logger.debug("HostCommunication", "Sandbox 收到 Host 消息", { type: message.type });
+    logger.info("HostCommunication", "Sandbox 收到 Host 消息", { type: message.type });
 
     switch (message.type) {
       case "host-ready":
@@ -115,7 +115,7 @@ class HostCommunicationManager {
 
       case "pong":
         this.hostReady = true;
-        logger.debug("HostCommunication", "Host 心跳响应正常");
+        logger.info("HostCommunication", "Host 心跳响应正常");
         break;
 
       case "host-unmounting":
@@ -128,7 +128,7 @@ class HostCommunicationManager {
         break;
 
       case "host-status-response":
-        logger.debug("HostCommunication", "Host 状态", { data: message.data });
+        logger.info("HostCommunication", "Host 状态", { data: message.data });
         // 通知 UI Host 状态
         pixso.ui.postMessage({
           type: "host-status",
@@ -138,7 +138,7 @@ class HostCommunicationManager {
         break;
 
       case "custom-action-result":
-        logger.debug("HostCommunication", "自定义操作结果", { data: message.data });
+        logger.info("HostCommunication", "自定义操作结果", { data: message.data });
         // 通知 UI 自定义操作结果
         pixso.ui.postMessage({
           type: "custom-action-result",
@@ -190,7 +190,7 @@ class HostCommunicationManager {
         });
       }
       this.pendingMessages.push(message);
-      logger.debug("HostCommunication", "Host 未就绪，消息已加入队列", { type: message.type });
+      logger.info("HostCommunication", "Host 未就绪，消息已加入队列", { type: message.type });
       return;
     }
 
@@ -200,7 +200,7 @@ class HostCommunicationManager {
       type: "sandbox-to-host",
       data: message,
     });
-    logger.debug("HostCommunication", "消息已转发到 UI（目标: Host）", { message });
+    logger.info("HostCommunication", "消息已转发到 UI（目标: Host）", { message });
   }
 
   /**
@@ -264,7 +264,7 @@ async function ensureFontLoaded(): Promise<void> {
   if (fontLoaded) return;
 
   if (!fontLoadPromise) {
-    logger.debug("FontLoader", "开始加载字体");
+    logger.info("FontLoader", "开始加载字体");
     fontLoadPromise = pixso
       .loadFontAsync({ family: "Inter", style: "Regular" })
       .catch(() => {
@@ -309,8 +309,13 @@ const PROGRESS = {
  */
 function safePostMessage(message: { type: string; [key: string]: unknown }): void {
   try {
+    // 检查 pixso.ui.postMessage 是否为函数
+    if (typeof pixso?.ui?.postMessage !== "function") {
+      logger.warn("SafePostMessage", "pixso.ui.postMessage 不可用", { type: message.type });
+      return;
+    }
     pixso.ui.postMessage(message);
-    logger.debug("SafePostMessage", "消息发送成功", { type: message.type });
+    logger.info("SafePostMessage", "消息发送成功", { type: message.type });
   } catch (error) {
     logger.error("SafePostMessage", "消息发送失败", {
       type: message.type,
@@ -338,7 +343,7 @@ interface ImageAnalysisResult {
 }
 
 pixso.ui.onmessage = async (msg) => {
-  logger.debug("Main", "收到 UI 消息", { type: msg.type });
+  logger.info("Main", "收到 UI 消息", { type: msg.type });
 
   // 检查是否为 Host 消息转发
   if (msg.type === "host-message") {
@@ -512,7 +517,7 @@ async function generateDesignElements(
   const nodes: SceneNode[] = [];
   const totalElements = analysisResult.elements.length;
 
-  logger.debug("ElementGeneration", "开始生成设计元素", {
+  logger.info("ElementGeneration", "开始生成设计元素", {
     elementsCount: totalElements,
   });
 
