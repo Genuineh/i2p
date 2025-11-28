@@ -477,7 +477,8 @@ async function handleImageUpload(
         message: "未配置 API 密钥",
         suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
       });
-      pixso.closePlugin();
+      // 延迟关闭插件，确保 UI 有时间接收并处理消息
+      setTimeout(() => pixso.closePlugin(), 100);
       return;
     }
 
@@ -581,7 +582,8 @@ async function handleImageUpload(
     });
   }
 
-  pixso.closePlugin();
+  // 延迟关闭插件，确保 UI 有时间接收并处理消息
+  setTimeout(() => pixso.closePlugin(), 100);
 }
 
 /**
