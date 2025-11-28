@@ -279,22 +279,27 @@ interface UISettings {
  * 更新图片识别配置
  */
 function updateRecognitionConfig(settings: UISettings): void {
+  // 只有在 OpenAPI 模式下才设置 OpenAPI 相关配置
+  const isOpenApiMode = settings.processingMode === "openapi";
+
   recognitionConfig = {
     enableLocalFallback: true,
     colorThreshold: 30,
     minRegionSize: 20,
-    openApiProvider: settings.openApiProvider,
-    openApiEndpoint: settings.openApiEndpoint || undefined,
-    openApiKey: settings.openApiKey || undefined,
-    openApiModel: settings.openApiModel || undefined,
+    // 只在 OpenAPI 模式下设置相关配置
+    openApiProvider: isOpenApiMode ? settings.openApiProvider : undefined,
+    openApiEndpoint:
+      isOpenApiMode && settings.openApiEndpoint ? settings.openApiEndpoint : undefined,
+    openApiKey: isOpenApiMode && settings.openApiKey ? settings.openApiKey : undefined,
+    openApiModel: isOpenApiMode && settings.openApiModel ? settings.openApiModel : undefined,
   };
 
   // 重新创建图片识别管理器
   imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
   logger.info("Main", "图片识别配置已更新", {
     processingMode: settings.processingMode,
-    provider: settings.openApiProvider,
-    hasApiKey: !!settings.openApiKey,
+    provider: isOpenApiMode ? settings.openApiProvider : "none",
+    hasApiKey: isOpenApiMode && !!settings.openApiKey,
   });
 }
 
@@ -412,6 +417,18 @@ async function handleImageUpload(
   pixso.ui.postMessage({ type: "processing", message: "正在分析图片...", progress: 10 });
 
   try {
+    // 检查 OpenAPI 模式下是否配置了 API 密钥
+    if (processingMode === "openapi" && !settings?.openApiKey) {
+      logger.warn("ImageUpload", "OpenAPI 模式未配置 API 密钥，回退到本地处理");
+      pixso.ui.postMessage({
+        type: "error",
+        message: "未配置 API 密钥",
+        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
+      });
+      pixso.closePlugin();
+      return;
+    }
+
     // 使用图片识别服务分析图片
     // 根据设置选择处理模式
     // 启用布局分析以生成响应式约束

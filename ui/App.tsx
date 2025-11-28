@@ -442,6 +442,17 @@ const App = () => {
       return;
     }
 
+    // 如果选择了 OpenAPI 模式但没有配置 API 密钥，显示错误
+    if (settings.processingMode === "openapi" && !settings.openApiKey) {
+      setUploadState({
+        status: "error",
+        progress: 0,
+        message: "未配置 API 密钥",
+        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
+      });
+      return;
+    }
+
     setUploadState({ status: "uploading", progress: 0, message: "正在生成设计..." });
 
     parent.postMessage(
@@ -465,6 +476,17 @@ const App = () => {
         progress: 0,
         message: "重试次数已达上限",
         suggestion: "请尝试更换图片或刷新插件后重试",
+      });
+      return;
+    }
+
+    // 如果选择了 OpenAPI 模式但没有配置 API 密钥，显示错误
+    if (settings.processingMode === "openapi" && !settings.openApiKey) {
+      setUploadState({
+        status: "error",
+        progress: 0,
+        message: "未配置 API 密钥",
+        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
       });
       return;
     }
