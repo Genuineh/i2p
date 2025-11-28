@@ -255,32 +255,48 @@ const CONSTRAINT_TYPE_MAP: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "ST
 
 // 图片识别配置
 // 可以通过环境变量或配置文件设置 OpenAPI 配置
-const recognitionConfig: ImageRecognitionConfig = {
+let recognitionConfig: ImageRecognitionConfig = {
   enableLocalFallback: true,
   colorThreshold: 30,
   minRegionSize: 20,
-  // AI 提供商配置（支持 openai、alibaba、gemini）
-  // openApiProvider: 'openai',  // 可选值: 'openai' | 'alibaba' | 'gemini'
-  // openApiKey: 'your-api-key',
-  //
-  // OpenAI 配置示例:
-  // openApiProvider: 'openai',
-  // openApiEndpoint: 'https://api.openai.com/v1/chat/completions',  // 可选，使用默认值
-  // openApiModel: 'gpt-4-vision-preview',  // 可选，使用默认值
-  //
-  // 阿里云通义千问配置示例:
-  // openApiProvider: 'alibaba',
-  // openApiEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',  // 可选
-  // openApiModel: 'qwen-vl-max',  // 可选，使用默认值
-  //
-  // Google Gemini 配置示例:
-  // openApiProvider: 'gemini',
-  // openApiEndpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',  // 可选
-  // openApiModel: 'gemini-2.0-flash',  // 可选，使用默认值
 };
 
 // 创建图片识别管理器
-const imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
+let imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
+
+/**
+ * UI 传来的设置接口
+ */
+interface UISettings {
+  processingMode: "local" | "openapi";
+  openApiProvider: "openai" | "alibaba" | "gemini";
+  openApiEndpoint: string;
+  openApiKey: string;
+  openApiModel: string;
+}
+
+/**
+ * 更新图片识别配置
+ */
+function updateRecognitionConfig(settings: UISettings): void {
+  recognitionConfig = {
+    enableLocalFallback: true,
+    colorThreshold: 30,
+    minRegionSize: 20,
+    openApiProvider: settings.openApiProvider,
+    openApiEndpoint: settings.openApiEndpoint || undefined,
+    openApiKey: settings.openApiKey || undefined,
+    openApiModel: settings.openApiModel || undefined,
+  };
+
+  // 重新创建图片识别管理器
+  imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
+  logger.info("Main", "图片识别配置已更新", {
+    processingMode: settings.processingMode,
+    provider: settings.openApiProvider,
+    hasApiKey: !!settings.openApiKey,
+  });
+}
 
 // 缓存字体加载状态
 let fontLoaded = false;
@@ -330,7 +346,16 @@ pixso.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === "upload-image") {
-    await handleImageUpload(msg.data, msg.fileName);
+    // 如果消息中包含设置，先更新配置
+    if (msg.settings) {
+      updateRecognitionConfig(msg.settings);
+    }
+    await handleImageUpload(msg.data, msg.fileName, msg.settings);
+  } else if (msg.type === "update-settings") {
+    // 处理设置更新消息
+    if (msg.settings) {
+      updateRecognitionConfig(msg.settings);
+    }
   } else if (msg.type === "request-host-status") {
     // 请求 Host 状态
     const timestamp = Date.now();
@@ -372,22 +397,33 @@ pixso.ui.onmessage = async (msg) => {
  * 处理图片上传
  * @param imageData - Base64 编码的图片数据
  * @param fileName - 文件名
+ * @param settings - UI 设置（可选）
  */
-async function handleImageUpload(imageData: string, fileName: string): Promise<void> {
+async function handleImageUpload(
+  imageData: string,
+  fileName: string,
+  settings?: UISettings
+): Promise<void> {
   const startTime = Date.now();
-  logger.info("ImageUpload", "开始处理图片", { fileName });
+  const processingMode = settings?.processingMode || "local";
+  logger.info("ImageUpload", "开始处理图片", { fileName, processingMode });
 
   // 通知 UI 开始处理
   pixso.ui.postMessage({ type: "processing", message: "正在分析图片...", progress: 10 });
 
   try {
     // 使用图片识别服务分析图片
-    // 默认使用本地处理器，如需使用 OpenAPI 服务，可改为 'openapi'
+    // 根据设置选择处理模式
     // 启用布局分析以生成响应式约束
-    logger.debug("ImageUpload", "开始图片分析");
-    pixso.ui.postMessage({ type: "processing", message: "正在识别图片内容...", progress: 30 });
+    logger.debug("ImageUpload", "开始图片分析", { mode: processingMode });
 
-    const analysisResult = await imageRecognitionManager.analyze(imageData, "local", true);
+    const modeMessage =
+      processingMode === "openapi"
+        ? "正在使用 AI 识别图片内容..."
+        : "正在使用本地处理器分析图片...";
+    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 30 });
+
+    const analysisResult = await imageRecognitionManager.analyze(imageData, processingMode, true);
 
     if (!analysisResult.success) {
       const error = new Error(analysisResult.error || "图片分析失败");

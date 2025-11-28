@@ -17,6 +17,53 @@ const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 // 本地存储键名
 const STORAGE_KEY_GUIDE_SHOWN = "i2p_guide_shown";
+const STORAGE_KEY_SETTINGS = "i2p_settings";
+
+// AI 提供商类型
+type AIProvider = "openai" | "alibaba" | "gemini";
+
+// 处理模式
+type ProcessingMode = "local" | "openapi";
+
+// 设置接口
+interface Settings {
+  processingMode: ProcessingMode;
+  openApiProvider: AIProvider;
+  openApiEndpoint: string;
+  openApiKey: string;
+  openApiModel: string;
+}
+
+// 默认设置
+const DEFAULT_SETTINGS: Settings = {
+  processingMode: "local",
+  openApiProvider: "openai",
+  openApiEndpoint: "",
+  openApiKey: "",
+  openApiModel: "",
+};
+
+// AI 提供商配置
+const AI_PROVIDERS: Record<
+  AIProvider,
+  { name: string; defaultEndpoint: string; defaultModel: string }
+> = {
+  openai: {
+    name: "OpenAI",
+    defaultEndpoint: "https://api.openai.com/v1/chat/completions",
+    defaultModel: "gpt-4-vision-preview",
+  },
+  alibaba: {
+    name: "阿里云通义千问",
+    defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    defaultModel: "qwen-vl-max",
+  },
+  gemini: {
+    name: "Google Gemini",
+    defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    defaultModel: "gemini-2.0-flash",
+  },
+};
 
 // 默认进度值
 const DEFAULT_PROCESSING_PROGRESS = 50;
@@ -74,9 +121,44 @@ const App = () => {
     message: "",
   });
   const [showGuide, setShowGuide] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [retryCount, setRetryCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImageDataRef = useRef<{ data: string; name: string } | null>(null);
+
+  // 加载保存的设置
+  useEffect(() => {
+    try {
+      const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings) as Partial<Settings>;
+        setSettings((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {
+      // 如果 localStorage 不可用或解析失败，忽略
+    }
+  }, []);
+
+  // 保存设置到 localStorage
+  const saveSettings = useCallback((newSettings: Settings) => {
+    setSettings(newSettings);
+    try {
+      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(newSettings));
+    } catch {
+      // 忽略存储错误
+    }
+    // 通知主线程设置已更新
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "update-settings",
+          settings: newSettings,
+        },
+      },
+      "*"
+    );
+  }, []);
 
   // 检查是否首次使用，显示引导
   useEffect(() => {
@@ -368,11 +450,12 @@ const App = () => {
           type: "upload-image",
           data: imagePreview,
           fileName: fileName,
+          settings: settings,
         },
       },
       "*"
     );
-  }, [imagePreview, fileName]);
+  }, [imagePreview, fileName, settings]);
 
   // 重试操作
   const handleRetry = useCallback(() => {
@@ -396,12 +479,13 @@ const App = () => {
             type: "upload-image",
             data: lastImageDataRef.current.data,
             fileName: lastImageDataRef.current.name,
+            settings: settings,
           },
         },
         "*"
       );
     }
-  }, [retryCount]);
+  }, [retryCount, settings]);
 
   // 清除图片
   const handleClear = useCallback(() => {
@@ -425,15 +509,155 @@ const App = () => {
       <header className="header">
         <h1 className="title">Image to Pixso</h1>
         <p className="subtitle">上传截图，自动生成 Pixso 设计</p>
-        <button
-          className="guide-btn"
-          onClick={showGuideAgain}
-          title="显示操作指南"
-          aria-label="显示操作指南"
-        >
-          ?
-        </button>
+        <div className="header-buttons">
+          <button
+            className="settings-btn"
+            onClick={() => setShowSettings(true)}
+            title="设置"
+            aria-label="设置"
+          >
+            ⚙
+          </button>
+          <button
+            className="guide-btn"
+            onClick={showGuideAgain}
+            title="显示操作指南"
+            aria-label="显示操作指南"
+          >
+            ?
+          </button>
+        </div>
       </header>
+
+      {/* 设置面板 */}
+      {showSettings && (
+        <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+          <div className="settings-content" onClick={(e) => e.stopPropagation()}>
+            <h2 className="settings-title">设置</h2>
+
+            {/* 处理模式选择 */}
+            <div className="settings-section">
+              <h3>🔧 图片处理模式</h3>
+              <div className="settings-field">
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="processingMode"
+                    value="local"
+                    checked={settings.processingMode === "local"}
+                    onChange={() => saveSettings({ ...settings, processingMode: "local" })}
+                  />
+                  <span className="radio-text">
+                    <strong>本地处理</strong>
+                    <small>使用本地图库分析图片，无需API密钥</small>
+                  </span>
+                </label>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="processingMode"
+                    value="openapi"
+                    checked={settings.processingMode === "openapi"}
+                    onChange={() => saveSettings({ ...settings, processingMode: "openapi" })}
+                  />
+                  <span className="radio-text">
+                    <strong>AI 处理 (OpenAPI)</strong>
+                    <small>使用AI大模型进行智能识别，需要配置API</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* OpenAPI 设置 */}
+            <div
+              className={`settings-section ${settings.processingMode === "local" ? "disabled" : ""}`}
+            >
+              <h3>🤖 OpenAPI 设置</h3>
+
+              {/* AI 提供商选择 */}
+              <div className="settings-field">
+                <label className="field-label">AI 提供商</label>
+                <select
+                  className="field-select"
+                  value={settings.openApiProvider}
+                  onChange={(e) => {
+                    const provider = e.target.value as AIProvider;
+                    saveSettings({
+                      ...settings,
+                      openApiProvider: provider,
+                      openApiEndpoint: "",
+                      openApiModel: "",
+                    });
+                  }}
+                  disabled={settings.processingMode === "local"}
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="alibaba">阿里云通义千问</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </div>
+
+              {/* API 端点 */}
+              <div className="settings-field">
+                <label className="field-label">API 端点 (可选)</label>
+                <input
+                  type="text"
+                  className="field-input"
+                  placeholder={AI_PROVIDERS[settings.openApiProvider].defaultEndpoint}
+                  value={settings.openApiEndpoint}
+                  onChange={(e) => saveSettings({ ...settings, openApiEndpoint: e.target.value })}
+                  disabled={settings.processingMode === "local"}
+                />
+                <small className="field-hint">留空则使用默认端点</small>
+              </div>
+
+              {/* API 密钥 */}
+              <div className="settings-field">
+                <label className="field-label">API 密钥</label>
+                <input
+                  type="password"
+                  className="field-input"
+                  placeholder="输入您的 API 密钥"
+                  value={settings.openApiKey}
+                  onChange={(e) => saveSettings({ ...settings, openApiKey: e.target.value })}
+                  disabled={settings.processingMode === "local"}
+                />
+              </div>
+
+              {/* 模型选择 */}
+              <div className="settings-field">
+                <label className="field-label">模型 (可选)</label>
+                <input
+                  type="text"
+                  className="field-input"
+                  placeholder={AI_PROVIDERS[settings.openApiProvider].defaultModel}
+                  value={settings.openApiModel}
+                  onChange={(e) => saveSettings({ ...settings, openApiModel: e.target.value })}
+                  disabled={settings.processingMode === "local"}
+                />
+                <small className="field-hint">留空则使用默认模型</small>
+              </div>
+            </div>
+
+            {/* 当前处理模式提示 */}
+            <div className="settings-status">
+              {settings.processingMode === "local" ? (
+                <span className="status-local">✓ 当前使用本地处理模式</span>
+              ) : settings.openApiKey ? (
+                <span className="status-ready">
+                  ✓ OpenAPI 已配置，使用 {AI_PROVIDERS[settings.openApiProvider].name}
+                </span>
+              ) : (
+                <span className="status-warning">⚠ 请输入 API 密钥以启用 AI 处理</span>
+              )}
+            </div>
+
+            <button className="settings-close-btn" onClick={() => setShowSettings(false)}>
+              完成
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 操作引导 */}
       {showGuide && (

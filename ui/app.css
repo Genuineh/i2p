@@ -74,11 +74,39 @@ body {
   color: var(--text-secondary);
 }
 
-/* 引导按钮 */
-.guide-btn {
+/* 头部按钮组 */
+.header-buttons {
   position: absolute;
   top: 0;
   right: 0;
+  display: flex;
+  gap: 8px;
+}
+
+/* 设置按钮 */
+.settings-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-btn:hover {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+}
+
+/* 引导按钮 */
+.guide-btn {
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -571,4 +599,204 @@ kbd {
   .guide-content {
     padding: 20px;
   }
+
+  .settings-content {
+    padding: 20px;
+  }
+}
+
+/* 设置面板遮罩 */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-normal);
+}
+
+/* 设置面板内容 */
+.settings-content {
+  background-color: var(--bg-color);
+  border-radius: var(--border-radius-lg);
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp var(--transition-normal);
+}
+
+.settings-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  transition: opacity var(--transition-fast);
+}
+
+.settings-section.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.settings-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.settings-field {
+  margin-bottom: 12px;
+}
+
+.settings-field:last-child {
+  margin-bottom: 0;
+}
+
+/* 单选按钮样式 */
+.radio-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.radio-label:last-child {
+  margin-bottom: 0;
+}
+
+.radio-label:hover {
+  border-color: var(--primary-color);
+}
+
+.radio-label input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--primary-color);
+}
+
+.radio-label input[type="radio"]:checked + .radio-text strong {
+  color: var(--primary-color);
+}
+
+.radio-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radio-text strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.radio-text small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* 表单字段样式 */
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.field-input,
+.field-select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.field-input:focus,
+.field-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-border);
+}
+
+.field-input:disabled,
+.field-select:disabled {
+  background-color: var(--bg-secondary);
+  cursor: not-allowed;
+}
+
+.field-input::placeholder {
+  color: var(--text-muted);
+}
+
+.field-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* 设置状态提示 */
+.settings-status {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  text-align: center;
+  font-size: 13px;
+}
+
+.status-local {
+  color: var(--text-secondary);
+}
+
+.status-ready {
+  color: var(--success-color);
+}
+
+.status-warning {
+  color: var(--warning-color);
+}
+
+.settings-close-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.settings-close-btn:hover {
+  background-color: var(--primary-hover);
 }
