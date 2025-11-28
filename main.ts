@@ -1,8 +1,5 @@
 import {
-  ImageRecognitionManager,
-  ImageAnalysisResult,
   RecognizedElement,
-  ImageRecognitionConfig,
   ColorInfo,
   GradientInfo,
   ElementEffect,
@@ -37,8 +34,6 @@ enum ProcessErrorType {
   IMAGE_ANALYSIS = "IMAGE_ANALYSIS",
   ELEMENT_CREATION = "ELEMENT_CREATION",
   FONT_LOADING = "FONT_LOADING",
-  TIMEOUT = "TIMEOUT",
-  CANVAS_ERROR = "CANVAS_ERROR",
   UNKNOWN = "UNKNOWN",
 }
 
@@ -48,30 +43,17 @@ enum ProcessErrorType {
 function getErrorSuggestion(errorType: ProcessErrorType, errorMessage: string): string {
   switch (errorType) {
     case ProcessErrorType.IMAGE_ANALYSIS:
-      return "请尝试使用更清晰的图片，或调整图片大小后重新上传";
+      return "请尝试使用更清晰的图片，或检查 API 配置";
     case ProcessErrorType.ELEMENT_CREATION:
       return "设计元素创建失败，请尝试使用其他图片";
     case ProcessErrorType.FONT_LOADING:
       return "字体加载失败，部分文本可能无法正确显示";
-    case ProcessErrorType.TIMEOUT:
-      return "处理超时，请在设置中切换为 OpenAPI 模式处理图片";
-    case ProcessErrorType.CANVAS_ERROR:
-      return "沙箱环境不支持本地图片处理，请在设置中切换为 OpenAPI 模式";
     default:
       if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
         return "网络连接失败，请检查网络后重试";
       }
-      if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
-        return "处理超时，请在设置中切换为 OpenAPI 模式处理图片";
-      }
-      if (
-        errorMessage.includes("Canvas") ||
-        errorMessage.includes("canvas") ||
-        errorMessage.includes("沙箱") ||
-        errorMessage.includes("sandbox") ||
-        errorMessage.includes("OpenAPI 模式")
-      ) {
-        return "沙箱环境不支持本地图片处理，请在设置中切换为 OpenAPI 模式";
+      if (errorMessage.includes("API") || errorMessage.includes("密钥")) {
+        return "请检查 API 密钥配置是否正确";
       }
       return "请刷新插件后重试，如问题持续请联系支持";
   }
@@ -271,64 +253,6 @@ const CONSTRAINT_TYPE_MAP: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "ST
     scale: "SCALE",
   };
 
-// 图片识别配置
-// 可以通过环境变量或配置文件设置 OpenAPI 配置
-let recognitionConfig: ImageRecognitionConfig = {
-  enableLocalFallback: true,
-  colorThreshold: 30,
-  minRegionSize: 20,
-};
-
-// 创建图片识别管理器
-let imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
-
-/**
- * UI 传来的设置接口
- */
-interface UISettings {
-  processingMode: "local" | "openapi";
-  openApiProvider: "openai" | "alibaba" | "gemini";
-  openApiEndpoint: string;
-  openApiKey: string;
-  openApiModel: string;
-}
-
-/**
- * 更新图片识别配置
- */
-function updateRecognitionConfig(settings: UISettings): void {
-  // 只有在 OpenAPI 模式下才设置 OpenAPI 相关配置
-  const isOpenApiMode = settings.processingMode === "openapi";
-
-  // 基础配置
-  const baseConfig: ImageRecognitionConfig = {
-    enableLocalFallback: true,
-    colorThreshold: 30,
-    minRegionSize: 20,
-  };
-
-  // 如果是 OpenAPI 模式，添加 OpenAPI 相关配置
-  if (isOpenApiMode) {
-    recognitionConfig = {
-      ...baseConfig,
-      openApiProvider: settings.openApiProvider,
-      openApiEndpoint: settings.openApiEndpoint || undefined,
-      openApiKey: settings.openApiKey || undefined,
-      openApiModel: settings.openApiModel || undefined,
-    };
-  } else {
-    recognitionConfig = baseConfig;
-  }
-
-  // 重新创建图片识别管理器
-  imageRecognitionManager = new ImageRecognitionManager(recognitionConfig);
-  logger.info("Main", "图片识别配置已更新", {
-    processingMode: settings.processingMode,
-    provider: isOpenApiMode ? settings.openApiProvider : "none",
-    hasApiKey: isOpenApiMode && !!settings.openApiKey,
-  });
-}
-
 // 缓存字体加载状态
 let fontLoaded = false;
 let fontLoadPromise: Promise<void> | null = null;
@@ -360,39 +284,8 @@ async function ensureFontLoaded(): Promise<void> {
   return fontLoadPromise;
 }
 
-// 默认超时时间（毫秒）
-const DEFAULT_ANALYSIS_TIMEOUT = 30000; // 30秒
-const OPENAPI_ANALYSIS_TIMEOUT = 60000; // OpenAPI 模式 60秒
 // 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
 const CLOSE_PLUGIN_DELAY_MS = 100;
-
-/**
- * 带超时的 Promise 包装器
- * @param promise - 要执行的 Promise
- * @param timeoutMs - 超时时间（毫秒）
- * @param timeoutMessage - 超时错误信息
- */
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(timeoutMessage));
-    }, timeoutMs);
-
-    promise
-      .then((result) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-  });
-}
 
 pixso.showUI(__html__, { width: 400, height: 560 });
 
@@ -400,6 +293,17 @@ pixso.showUI(__html__, { width: 400, height: 560 });
 hostCommunication.init();
 
 logger.info("Main", "插件初始化完成");
+
+/**
+ * 图片分析结果接口（从 UI 层接收）
+ */
+interface ImageAnalysisResult {
+  width: number;
+  height: number;
+  elements: RecognizedElement[];
+  success: boolean;
+  error?: string;
+}
 
 pixso.ui.onmessage = async (msg) => {
   logger.debug("Main", "收到 UI 消息", { type: msg.type });
@@ -410,17 +314,10 @@ pixso.ui.onmessage = async (msg) => {
     return;
   }
 
-  if (msg.type === "upload-image") {
-    // 如果消息中包含设置，先更新配置
-    if (msg.settings) {
-      updateRecognitionConfig(msg.settings);
-    }
-    await handleImageUpload(msg.data, msg.fileName, msg.settings);
-  } else if (msg.type === "update-settings") {
-    // 处理设置更新消息
-    if (msg.settings) {
-      updateRecognitionConfig(msg.settings);
-    }
+  if (msg.type === "openapi-analysis-result") {
+    // 处理来自 UI 的 OpenAPI 分析结果
+    // UI 层完成网络请求后，将结果发送到 sandbox 进行元素生成
+    await handleOpenApiAnalysisResult(msg.data, msg.fileName, msg.originalImageData);
   } else if (msg.type === "request-host-status") {
     // 请求 Host 状态
     const timestamp = Date.now();
@@ -459,89 +356,39 @@ pixso.ui.onmessage = async (msg) => {
 };
 
 /**
- * 处理图片上传
- * @param imageData - Base64 编码的图片数据
+ * 处理来自 UI 的 OpenAPI 分析结果
+ * UI 层完成 API 调用后，将分析结果发送到沙箱进行 Pixso 元素生成
+ * 
+ * @param analysisResult - AI 分析结果
  * @param fileName - 文件名
- * @param settings - UI 设置（可选）
+ * @param originalImageData - 原始图片数据
  */
-async function handleImageUpload(
-  imageData: string,
+async function handleOpenApiAnalysisResult(
+  analysisResult: ImageAnalysisResult,
   fileName: string,
-  settings?: UISettings
+  originalImageData: string
 ): Promise<void> {
   const startTime = Date.now();
-  const processingMode = settings?.processingMode || "local";
-  logger.info("ImageUpload", "开始处理图片", { fileName, processingMode });
-
-  // 通知 UI 开始处理
-  pixso.ui.postMessage({ type: "processing", message: "正在分析图片...", progress: 10 });
+  logger.info("OpenApiResult", "收到 AI 分析结果", {
+    fileName,
+    elementsCount: analysisResult.elements.length,
+    width: analysisResult.width,
+    height: analysisResult.height,
+  });
 
   try {
-    // 检查 OpenAPI 模式下是否配置了 API 密钥
-    if (processingMode === "openapi" && !settings?.openApiKey) {
-      logger.warn("ImageUpload", "OpenAPI 模式未配置 API 密钥，终止处理");
-      pixso.ui.postMessage({
-        type: "error",
-        message: "未配置 API 密钥",
-        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
-      });
-      // 延迟关闭插件，确保 UI 有时间接收并处理消息
-      setTimeout(() => pixso.closePlugin(), CLOSE_PLUGIN_DELAY_MS);
-      return;
-    }
-
-    // 使用图片识别服务分析图片
-    // 根据设置选择处理模式
-    // 启用布局分析以生成响应式约束
-    logger.debug("ImageUpload", "开始图片分析", { mode: processingMode });
-
-    const modeMessage =
-      processingMode === "openapi"
-        ? "正在使用 AI 识别图片内容..."
-        : "正在加载并分析图片...";
-    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 25 });
-
-    // 根据处理模式选择超时时间
-    const timeoutMs =
-      processingMode === "openapi" ? OPENAPI_ANALYSIS_TIMEOUT : DEFAULT_ANALYSIS_TIMEOUT;
-    const timeoutMessage =
-      processingMode === "openapi"
-        ? "AI 分析超时，请检查网络连接或稍后重试"
-        : "本地图片分析超时，可能是沙箱环境不支持 Canvas API";
-
-    // 使用超时包装器执行分析
-    logger.debug("ImageUpload", "调用图片识别服务");
-    const analysisResult = await withTimeout(
-      imageRecognitionManager.analyze(imageData, processingMode, true),
-      timeoutMs,
-      timeoutMessage
-    );
-
+    // 检查分析是否成功
     if (!analysisResult.success) {
-      const error = new Error(analysisResult.error || "图片分析失败");
-      logger.error("ImageUpload", "图片分析失败", { error: analysisResult.error });
-      throw error;
+      throw new Error(analysisResult.error || "AI 分析失败");
     }
-
-    logger.info("ImageUpload", "图片分析完成", {
-      elementsCount: analysisResult.elements.length,
-      width: analysisResult.width,
-      height: analysisResult.height,
-    });
 
     // 更新进度
-    pixso.ui.postMessage({
-      type: "processing",
-      message: `分析完成，识别到 ${analysisResult.elements.length} 个元素`,
-      progress: 50,
-    });
-
-    // 根据分析结果生成设计元素
     pixso.ui.postMessage({ type: "processing", message: "正在生成设计元素...", progress: 60 });
 
-    const nodes = await generateDesignElements(analysisResult, fileName, imageData);
+    // 根据分析结果生成设计元素
+    const nodes = await generateDesignElements(analysisResult, fileName, originalImageData);
 
-    logger.info("ImageUpload", "设计元素生成完成", { nodesCount: nodes.length });
+    logger.info("OpenApiResult", "设计元素生成完成", { nodesCount: nodes.length });
 
     // 更新进度
     pixso.ui.postMessage({ type: "processing", message: "正在完成设计...", progress: 90 });
@@ -553,7 +400,7 @@ async function handleImageUpload(
     }
 
     const duration = Date.now() - startTime;
-    logger.info("ImageUpload", "图片处理完成", {
+    logger.info("OpenApiResult", "图片处理完成", {
       duration: `${duration}ms`,
       elementsCreated: nodes.length,
     });
@@ -568,21 +415,13 @@ async function handleImageUpload(
 
     // 根据错误信息确定错误类型
     let errorType = ProcessErrorType.UNKNOWN;
-    if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
-      errorType = ProcessErrorType.TIMEOUT;
-    } else if (
-      errorMessage.includes("Canvas") ||
-      errorMessage.includes("canvas") ||
-      errorMessage.includes("沙箱") ||
-      errorMessage.includes("sandbox") ||
-      errorMessage.includes("OpenAPI 模式")
-    ) {
-      errorType = ProcessErrorType.CANVAS_ERROR;
-    } else if (errorMessage.includes("分析")) {
+    if (errorMessage.includes("分析") || errorMessage.includes("AI")) {
       errorType = ProcessErrorType.IMAGE_ANALYSIS;
+    } else if (errorMessage.includes("创建") || errorMessage.includes("元素")) {
+      errorType = ProcessErrorType.ELEMENT_CREATION;
     }
 
-    logger.error("ImageUpload", "图片处理失败", {
+    logger.error("OpenApiResult", "处理失败", {
       error: errorMessage,
       errorType,
       duration: `${Date.now() - startTime}ms`,
