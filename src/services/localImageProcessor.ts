@@ -173,43 +173,39 @@ export class LocalImageProcessor implements IImageRecognitionService {
         img.onerror = null;
       };
 
-      const timeoutId = setTimeout(() => {
+      const handleResolve = (result: HTMLImageElement) => {
         if (!isResolved) {
+          clearTimeout(timeoutId);
           cleanup();
-          reject(new Error("图片加载超时，沙箱环境可能不支持本地图片处理，请使用 OpenAPI 模式"));
+          resolve(result);
         }
+      };
+
+      const handleReject = (error: Error) => {
+        if (!isResolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(error);
+        }
+      };
+
+      const timeoutId = setTimeout(() => {
+        handleReject(new Error("图片加载超时，沙箱环境可能不支持本地图片处理，请使用 OpenAPI 模式"));
       }, LOAD_TIMEOUT_MS);
 
-      img.onload = () => {
-        if (!isResolved) {
-          clearTimeout(timeoutId);
-          cleanup();
-          resolve(img);
-        }
-      };
-
-      img.onerror = () => {
-        if (!isResolved) {
-          clearTimeout(timeoutId);
-          cleanup();
-          reject(new Error("图片加载失败，请检查图片格式是否正确"));
-        }
-      };
-
-      // 设置 crossOrigin 以支持跨域图片（如果是 URL）
+      // 设置 crossOrigin 必须在设置 src 之前，以避免潜在的竞态条件
       if (imageData.startsWith("http")) {
         img.crossOrigin = "anonymous";
       }
 
+      img.onload = () => handleResolve(img);
+      img.onerror = () => handleReject(new Error("图片加载失败，请检查图片格式是否正确"));
+
       try {
         img.src = imageData;
       } catch (error) {
-        if (!isResolved) {
-          clearTimeout(timeoutId);
-          cleanup();
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          reject(new Error(`设置图片源失败: ${errorMessage}`));
-        }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        handleReject(new Error(`设置图片源失败: ${errorMessage}`));
       }
     });
   }
