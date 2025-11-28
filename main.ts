@@ -25,34 +25,39 @@ interface HostMessage {
 /**
  * Host 通信管理器
  * 处理与 Host 脚本的双向通信
+ * 
+ * 通信架构说明：
+ * - Host -> Sandbox: hostApi.sandbox.postMessage(message)
+ * - Sandbox -> Host: 通过 UI 层转发，或等待 Host 主动轮询
+ * 
+ * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host，
+ * 而是通过以下方式实现间接通信：
+ * 1. Host 主动发送心跳/状态查询
+ * 2. Sandbox 在收到 Host 消息时响应
+ * 3. 通过 UI 层转发消息
  */
 class HostCommunicationManager {
   private hostReady: boolean = false;
   private pendingMessages: HostMessage[] = [];
+  private messageCallbacks: Map<string, ((response: HostMessage) => void)[]> = new Map();
 
   /**
    * 初始化 Host 通信
    */
   init(): void {
-    // 监听来自 Host 的消息
+    // 监听来自 Host 的消息（通过 UI 转发）
     pixso.on("run", () => {
       console.log("Sandbox 运行中，等待 Host 就绪");
     });
 
-    // 定期检查 Host 状态
-    this.checkHostStatus();
-  }
-
-  /**
-   * 检查 Host 状态
-   */
-  private checkHostStatus(): void {
-    // 发送心跳检测
-    this.sendToHost({ type: "ping", timestamp: Date.now() });
+    // Host 会在 mounted 时发送 host-ready 消息
+    // sandbox 通过 UI 接收这些消息
+    console.log("HostCommunicationManager 已初始化，等待 Host 消息");
   }
 
   /**
    * 处理来自 Host 的消息
+   * 这些消息通过 hostApi.sandbox.postMessage 发送，并由 pixso.ui.onmessage 接收
    */
   handleHostMessage(message: HostMessage): void {
     console.log("Sandbox 收到 Host 消息:", message);
@@ -61,6 +66,11 @@ class HostCommunicationManager {
       case "host-ready":
         this.hostReady = true;
         console.log("Host 已就绪，版本:", message.data?.version);
+        // 通知 UI Host 已就绪
+        pixso.ui.postMessage({
+          type: "host-ready",
+          data: message.data,
+        });
         // 发送待处理的消息
         this.flushPendingMessages();
         break;
@@ -73,14 +83,30 @@ class HostCommunicationManager {
       case "host-unmounting":
         this.hostReady = false;
         console.log("Host 即将卸载");
+        // 通知 UI Host 即将卸载
+        pixso.ui.postMessage({
+          type: "host-unmounting",
+        });
         break;
 
       case "host-status-response":
         console.log("Host 状态:", message.data);
+        // 通知 UI Host 状态
+        pixso.ui.postMessage({
+          type: "host-status",
+          data: message.data,
+        });
+        this.notifyCallbacks("host-status", message);
         break;
 
       case "custom-action-result":
         console.log("自定义操作结果:", message.data);
+        // 通知 UI 自定义操作结果
+        pixso.ui.postMessage({
+          type: "custom-action-result",
+          data: message.data,
+        });
+        this.notifyCallbacks("custom-action", message);
         break;
 
       default:
@@ -89,7 +115,30 @@ class HostCommunicationManager {
   }
 
   /**
-   * 发送消息到 Host
+   * 注册消息回调
+   */
+  onResponse(type: string, callback: (response: HostMessage) => void): void {
+    const callbacks = this.messageCallbacks.get(type) || [];
+    callbacks.push(callback);
+    this.messageCallbacks.set(type, callbacks);
+  }
+
+  /**
+   * 通知所有注册的回调
+   */
+  private notifyCallbacks(type: string, message: HostMessage): void {
+    const callbacks = this.messageCallbacks.get(type);
+    if (callbacks) {
+      callbacks.forEach((callback) => callback(message));
+    }
+  }
+
+  /**
+   * 发送消息到 Host（通过 UI 转发）
+   * 
+   * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host。
+   * 消息会被转发到 UI，再由 UI 发送到 Host（如果需要）。
+   * 或者等待 Host 主动轮询时响应。
    */
   sendToHost(message: HostMessage): void {
     if (!this.hostReady && message.type !== "ping") {
@@ -99,13 +148,13 @@ class HostCommunicationManager {
       return;
     }
 
-    try {
-      // 通过 pixso 发送消息到 Host
-      // 注意: 实际的 Host 通信需要通过特定的 API
-      console.log("发送消息到 Host:", message);
-    } catch (error) {
-      console.error("发送消息到 Host 失败:", error);
-    }
+    // 将消息转发到 UI，UI 可以决定是否需要进一步处理
+    // 注意：实际的 Host 通信是通过 UI -> Host 的间接方式完成
+    pixso.ui.postMessage({
+      type: "sandbox-to-host",
+      data: message,
+    });
+    console.log("消息已转发到 UI（目标: Host）:", message);
   }
 
   /**

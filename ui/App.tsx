@@ -62,6 +62,30 @@ const App = () => {
             message: msg.message || "处理失败",
           });
           break;
+        case "host-ready":
+          // Host 脚本已就绪
+          console.log("Host 脚本已就绪:", msg.data);
+          break;
+        case "host-unmounting":
+          // Host 脚本即将卸载
+          console.log("Host 脚本即将卸载");
+          break;
+        case "host-status":
+          // Host 状态响应
+          console.log("Host 状态:", msg.data);
+          break;
+        case "custom-action-result":
+          // 自定义操作结果
+          console.log("自定义操作结果:", msg.data);
+          break;
+        case "sandbox-status":
+          // Sandbox 状态响应
+          console.log("Sandbox 状态:", msg.data);
+          break;
+        case "sandbox-to-host":
+          // Sandbox 请求转发消息到 Host（如需要，可在此处理）
+          console.log("Sandbox 请求转发到 Host:", msg.data);
+          break;
       }
     };
 
