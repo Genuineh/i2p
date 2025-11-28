@@ -800,3 +800,17 @@ kbd {
 .settings-close-btn:hover {
   background-color: var(--primary-hover);
 }
+
+/* 设置描述文字 */
+.settings-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+/* 必填字段标记 */
+.required {
+  color: var(--error-color);
+  font-weight: 500;
+}

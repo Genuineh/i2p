@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import "./app.css";
+import { analyzeImageWithOpenApi, getProviderDefaults } from "./openApiService";
 
 // 支持的图片格式
 const SUPPORTED_FORMATS = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
@@ -22,12 +23,8 @@ const STORAGE_KEY_SETTINGS = "i2p_settings";
 // AI 提供商类型
 type AIProvider = "openai" | "alibaba" | "gemini";
 
-// 处理模式
-type ProcessingMode = "local" | "openapi";
-
-// 设置接口
+// 设置接口（移除了 processingMode，因为现在只支持 OpenAPI 模式）
 interface Settings {
-  processingMode: ProcessingMode;
   openApiProvider: AIProvider;
   openApiEndpoint: string;
   openApiKey: string;
@@ -36,7 +33,6 @@ interface Settings {
 
 // 默认设置
 const DEFAULT_SETTINGS: Settings = {
-  processingMode: "local",
   openApiProvider: "openai",
   openApiEndpoint: "",
   openApiKey: "",
@@ -433,8 +429,8 @@ const App = () => {
     fileInputRef.current?.click();
   };
 
-  // 生成设计
-  const handleGenerate = useCallback(() => {
+  // 生成设计 - 从 UI 层调用 API（因为 Pixso 沙箱不支持网络请求）
+  const handleGenerate = useCallback(async () => {
     if (!imagePreview) {
       setUploadState({
         status: "error",
@@ -445,39 +441,84 @@ const App = () => {
       return;
     }
 
-    // 如果选择了 OpenAPI 模式但没有配置 API 密钥，显示错误
-    if (settings.processingMode === "openapi" && !settings.openApiKey) {
+    // 检查是否配置了 API 密钥
+    if (!settings.openApiKey) {
       setUploadState({
         status: "error",
         progress: 0,
         message: "未配置 API 密钥",
-        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
+        suggestion: "请在设置中输入 API 密钥",
       });
       return;
     }
 
     console.log("[i2p] 开始生成设计...", { 
       fileName, 
-      mode: settings.processingMode,
+      provider: settings.openApiProvider,
       imageSize: imagePreview.length 
     });
-    setUploadState({ status: "uploading", progress: 0, message: "正在生成设计..." });
+    setUploadState({ status: "uploading", progress: 10, message: "正在使用 AI 分析图片..." });
 
-    parent.postMessage(
-      {
-        pluginMessage: {
-          type: "upload-image",
-          data: imagePreview,
-          fileName: fileName,
-          settings: settings,
+    try {
+      // 获取提供商默认配置
+      const providerDefaults = getProviderDefaults(settings.openApiProvider);
+      
+      // 在 UI 层调用 API（因为 Pixso 沙箱不支持网络请求）
+      const analysisResult = await analyzeImageWithOpenApi(imagePreview, {
+        provider: settings.openApiProvider,
+        endpoint: settings.openApiEndpoint || providerDefaults.defaultEndpoint,
+        apiKey: settings.openApiKey,
+        model: settings.openApiModel || providerDefaults.defaultModel,
+      });
+
+      if (!analysisResult.success) {
+        setUploadState({
+          status: "error",
+          progress: 0,
+          message: analysisResult.error || "AI 分析失败",
+          suggestion: "请检查 API 配置或稍后重试",
+        });
+        return;
+      }
+
+      console.log("[i2p] AI 分析完成，发送结果到沙箱", {
+        elementsCount: analysisResult.elements.length,
+        width: analysisResult.width,
+        height: analysisResult.height,
+      });
+
+      setUploadState({ 
+        status: "uploading", 
+        progress: 50, 
+        message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
+      });
+
+      // 将分析结果发送给沙箱进行元素生成
+      parent.postMessage(
+        {
+          pluginMessage: {
+            type: "openapi-analysis-result",
+            data: analysisResult,
+            fileName: fileName,
+            originalImageData: imagePreview,
+          },
         },
-      },
-      "*"
-    );
+        "*"
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "未知错误";
+      console.error("[i2p] AI 分析失败:", errorMessage);
+      setUploadState({
+        status: "error",
+        progress: 0,
+        message: `AI 分析失败: ${errorMessage}`,
+        suggestion: "请检查网络连接和 API 配置",
+      });
+    }
   }, [imagePreview, fileName, settings]);
 
   // 重试操作
-  const handleRetry = useCallback(() => {
+  const handleRetry = useCallback(async () => {
     if (retryCount >= 3) {
       setUploadState({
         status: "error",
@@ -488,13 +529,13 @@ const App = () => {
       return;
     }
 
-    // 如果选择了 OpenAPI 模式但没有配置 API 密钥，显示错误
-    if (settings.processingMode === "openapi" && !settings.openApiKey) {
+    // 检查是否配置了 API 密钥
+    if (!settings.openApiKey) {
       setUploadState({
         status: "error",
         progress: 0,
         message: "未配置 API 密钥",
-        suggestion: "请在设置中输入 API 密钥，或切换为本地处理模式",
+        suggestion: "请在设置中输入 API 密钥",
       });
       return;
     }
@@ -502,18 +543,54 @@ const App = () => {
     setRetryCount((prev) => prev + 1);
 
     if (lastImageDataRef.current) {
-      setUploadState({ status: "uploading", progress: 0, message: "正在重新生成设计..." });
-      parent.postMessage(
-        {
-          pluginMessage: {
-            type: "upload-image",
-            data: lastImageDataRef.current.data,
-            fileName: lastImageDataRef.current.name,
-            settings: settings,
+      setUploadState({ status: "uploading", progress: 10, message: "正在重新分析图片..." });
+      
+      try {
+        const providerDefaults = getProviderDefaults(settings.openApiProvider);
+        
+        const analysisResult = await analyzeImageWithOpenApi(lastImageDataRef.current.data, {
+          provider: settings.openApiProvider,
+          endpoint: settings.openApiEndpoint || providerDefaults.defaultEndpoint,
+          apiKey: settings.openApiKey,
+          model: settings.openApiModel || providerDefaults.defaultModel,
+        });
+
+        if (!analysisResult.success) {
+          setUploadState({
+            status: "error",
+            progress: 0,
+            message: analysisResult.error || "AI 分析失败",
+            suggestion: "请检查 API 配置或稍后重试",
+          });
+          return;
+        }
+
+        setUploadState({ 
+          status: "uploading", 
+          progress: 50, 
+          message: `分析完成，识别到 ${analysisResult.elements.length} 个元素，正在生成设计...` 
+        });
+
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "openapi-analysis-result",
+              data: analysisResult,
+              fileName: lastImageDataRef.current.name,
+              originalImageData: lastImageDataRef.current.data,
+            },
           },
-        },
-        "*"
-      );
+          "*"
+        );
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "未知错误";
+        setUploadState({
+          status: "error",
+          progress: 0,
+          message: `AI 分析失败: ${errorMessage}`,
+          suggestion: "请检查网络连接和 API 配置",
+        });
+      }
     }
   }, [retryCount, settings]);
 
@@ -563,46 +640,14 @@ const App = () => {
       {showSettings && (
         <div className="settings-overlay" onClick={() => setShowSettings(false)}>
           <div className="settings-content" onClick={(e) => e.stopPropagation()}>
-            <h2 className="settings-title">设置</h2>
-
-            {/* 处理模式选择 */}
-            <div className="settings-section">
-              <h3>🔧 图片处理模式</h3>
-              <div className="settings-field">
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="processingMode"
-                    value="local"
-                    checked={settings.processingMode === "local"}
-                    onChange={() => saveSettings({ ...settings, processingMode: "local" })}
-                  />
-                  <span className="radio-text">
-                    <strong>本地处理</strong>
-                    <small>使用本地图库分析图片，无需API密钥</small>
-                  </span>
-                </label>
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="processingMode"
-                    value="openapi"
-                    checked={settings.processingMode === "openapi"}
-                    onChange={() => saveSettings({ ...settings, processingMode: "openapi" })}
-                  />
-                  <span className="radio-text">
-                    <strong>AI 处理 (OpenAPI)</strong>
-                    <small>使用AI大模型进行智能识别，需要配置API</small>
-                  </span>
-                </label>
-              </div>
-            </div>
+            <h2 className="settings-title">API 设置</h2>
 
             {/* OpenAPI 设置 */}
-            <div
-              className={`settings-section ${settings.processingMode === "local" ? "disabled" : ""}`}
-            >
-              <h3>🤖 OpenAPI 设置</h3>
+            <div className="settings-section">
+              <h3>🤖 AI 图片识别配置</h3>
+              <p className="settings-description">
+                使用 AI 大模型分析图片并识别 UI 元素。请配置您的 API 密钥。
+              </p>
 
               {/* AI 提供商选择 */}
               <div className="settings-field">
@@ -619,7 +664,6 @@ const App = () => {
                       openApiModel: "",
                     });
                   }}
-                  disabled={settings.processingMode === "local"}
                 >
                   <option value="openai">OpenAI</option>
                   <option value="alibaba">阿里云通义千问</option>
@@ -636,21 +680,19 @@ const App = () => {
                   placeholder={AI_PROVIDERS[settings.openApiProvider].defaultEndpoint}
                   value={settings.openApiEndpoint}
                   onChange={(e) => saveSettings({ ...settings, openApiEndpoint: e.target.value })}
-                  disabled={settings.processingMode === "local"}
                 />
                 <small className="field-hint">留空则使用默认端点</small>
               </div>
 
               {/* API 密钥 */}
               <div className="settings-field">
-                <label className="field-label">API 密钥</label>
+                <label className="field-label">API 密钥 <span className="required">*</span></label>
                 <input
                   type="password"
                   className="field-input"
                   placeholder="输入您的 API 密钥"
                   value={settings.openApiKey}
                   onChange={(e) => saveSettings({ ...settings, openApiKey: e.target.value })}
-                  disabled={settings.processingMode === "local"}
                 />
               </div>
 
@@ -663,22 +705,19 @@ const App = () => {
                   placeholder={AI_PROVIDERS[settings.openApiProvider].defaultModel}
                   value={settings.openApiModel}
                   onChange={(e) => saveSettings({ ...settings, openApiModel: e.target.value })}
-                  disabled={settings.processingMode === "local"}
                 />
                 <small className="field-hint">留空则使用默认模型</small>
               </div>
             </div>
 
-            {/* 当前处理模式提示 */}
+            {/* 当前配置状态 */}
             <div className="settings-status">
-              {settings.processingMode === "local" ? (
-                <span className="status-local">✓ 当前使用本地处理模式</span>
-              ) : settings.openApiKey ? (
+              {settings.openApiKey ? (
                 <span className="status-ready">
-                  ✓ OpenAPI 已配置，使用 {AI_PROVIDERS[settings.openApiProvider].name}
+                  ✓ 已配置 {AI_PROVIDERS[settings.openApiProvider].name}
                 </span>
               ) : (
-                <span className="status-warning">⚠ 请输入 API 密钥以启用 AI 处理</span>
+                <span className="status-warning">⚠ 请输入 API 密钥</span>
               )}
             </div>
 
@@ -726,6 +765,7 @@ const App = () => {
                 <li>支持 PNG、JPG、JPEG、WebP 格式</li>
                 <li>图片大小限制 10MB</li>
                 <li>清晰的截图能获得更好的识别效果</li>
+                <li><strong>需要先在设置中配置 AI API 密钥</strong></li>
               </ul>
             </div>
             <button className="guide-close-btn" onClick={dismissGuide}>
