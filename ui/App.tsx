@@ -164,7 +164,8 @@ function sendResultToSandbox(
 }
 
 // 沙箱通信超时时间（毫秒）
-const SANDBOX_TIMEOUT_MS = 30000;
+// 增加超时时间，因为复杂设计可能需要更长时间处理
+const SANDBOX_TIMEOUT_MS = 120000;
 
 const App = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);

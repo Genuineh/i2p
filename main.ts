@@ -369,6 +369,14 @@ async function handleOpenApiAnalysisResult(
   originalImageData: string
 ): Promise<void> {
   const startTime = Date.now();
+  
+  // 立即发送确认消息，避免 UI 超时
+  pixso.ui.postMessage({ 
+    type: "processing", 
+    message: "沙箱已收到数据，正在处理...", 
+    progress: 55 
+  });
+  
   logger.info("OpenApiResult", "收到 AI 分析结果", {
     fileName,
     elementsCount: analysisResult.elements.length,
@@ -452,9 +460,10 @@ async function generateDesignElements(
   originalImageData: string
 ): Promise<SceneNode[]> {
   const nodes: SceneNode[] = [];
+  const totalElements = analysisResult.elements.length;
 
   logger.debug("ElementGeneration", "开始生成设计元素", {
-    elementsCount: analysisResult.elements.length,
+    elementsCount: totalElements,
   });
 
   // 创建一个 Frame 作为容器
@@ -470,8 +479,12 @@ async function generateDesignElements(
   // 遍历识别到的元素并创建对应的 Pixso 元素
   let successCount = 0;
   let failCount = 0;
+  
+  // 计算进度更新间隔：每处理 10% 的元素或至少每 5 个元素发送一次进度更新
+  const progressUpdateInterval = Math.max(1, Math.min(5, Math.floor(totalElements / 10)));
 
-  for (const element of analysisResult.elements) {
+  for (let i = 0; i < analysisResult.elements.length; i++) {
+    const element = analysisResult.elements[i];
     try {
       const node = await createElementNode(element, originalImageData);
       if (node) {
@@ -494,6 +507,16 @@ async function generateDesignElements(
       logger.warn("ElementGeneration", "创建元素失败", {
         elementType: element.type,
         error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    
+    // 定期发送进度更新，防止 UI 超时
+    if ((i + 1) % progressUpdateInterval === 0 || i === totalElements - 1) {
+      const progress = Math.min(85, 60 + Math.floor(((i + 1) / totalElements) * 25));
+      pixso.ui.postMessage({ 
+        type: "processing", 
+        message: `正在生成设计元素... (${i + 1}/${totalElements})`, 
+        progress 
       });
     }
   }
