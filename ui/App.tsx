@@ -18,6 +18,9 @@ const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 // 本地存储键名
 const STORAGE_KEY_GUIDE_SHOWN = "i2p_guide_shown";
 
+// 默认进度值
+const DEFAULT_PROCESSING_PROGRESS = 50;
+
 // 上传状态类型
 type UploadStatus = "idle" | "uploading" | "success" | "error";
 
@@ -36,6 +39,29 @@ const ERROR_SUGGESTIONS: Record<string, string> = {
   process: "请尝试使用其他图片，或检查图片是否完整无损",
   network: "请检查网络连接后重试",
   default: "请刷新插件后重试，如问题持续请联系支持",
+};
+
+/**
+ * 根据错误消息获取建议
+ */
+const getSuggestionFromError = (errorMessage: string): string => {
+  const message = (errorMessage || "").toLowerCase();
+  if (message.includes("格式") || message.includes("format") || message.includes("type")) {
+    return ERROR_SUGGESTIONS.format;
+  }
+  if (message.includes("大小") || message.includes("size") || message.includes("large")) {
+    return ERROR_SUGGESTIONS.size;
+  }
+  if (message.includes("读取") || message.includes("read") || message.includes("load")) {
+    return ERROR_SUGGESTIONS.read;
+  }
+  if (message.includes("处理") || message.includes("process")) {
+    return ERROR_SUGGESTIONS.process;
+  }
+  if (message.includes("网络") || message.includes("network")) {
+    return ERROR_SUGGESTIONS.network;
+  }
+  return ERROR_SUGGESTIONS.default;
 };
 
 const App = () => {
@@ -89,7 +115,7 @@ const App = () => {
         case "processing":
           setUploadState({
             status: "uploading",
-            progress: msg.progress ?? 50,
+            progress: msg.progress ?? DEFAULT_PROCESSING_PROGRESS,
             message: msg.message || "正在处理...",
           });
           break;
@@ -133,27 +159,6 @@ const App = () => {
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, []);
-
-  // 根据错误消息获取建议
-  const getSuggestionFromError = (errorMessage: string): string => {
-    const message = (errorMessage || "").toLowerCase();
-    if (message.includes("格式") || message.includes("format") || message.includes("type")) {
-      return ERROR_SUGGESTIONS.format;
-    }
-    if (message.includes("大小") || message.includes("size") || message.includes("large")) {
-      return ERROR_SUGGESTIONS.size;
-    }
-    if (message.includes("读取") || message.includes("read") || message.includes("load")) {
-      return ERROR_SUGGESTIONS.read;
-    }
-    if (message.includes("处理") || message.includes("process")) {
-      return ERROR_SUGGESTIONS.process;
-    }
-    if (message.includes("网络") || message.includes("network")) {
-      return ERROR_SUGGESTIONS.network;
-    }
-    return ERROR_SUGGESTIONS.default;
-  };
 
   // 验证文件
   const validateFile = (file: File): { valid: boolean; error?: string; suggestion?: string } => {
