@@ -13,6 +13,200 @@ import {
 } from "./src/services";
 
 /**
+ * Host 消息类型定义
+ */
+interface HostMessage {
+  type: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
+  timestamp?: number;
+}
+
+/**
+ * Host 通信管理器
+ * 处理与 Host 脚本的双向通信
+ * 
+ * 通信架构说明：
+ * - Host -> Sandbox: hostApi.sandbox.postMessage(message)
+ * - Sandbox -> Host: 通过 UI 层转发，或等待 Host 主动轮询
+ * 
+ * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host，
+ * 而是通过以下方式实现间接通信：
+ * 1. Host 主动发送心跳/状态查询
+ * 2. Sandbox 在收到 Host 消息时响应
+ * 3. 通过 UI 层转发消息
+ */
+class HostCommunicationManager {
+  private hostReady: boolean = false;
+  private pendingMessages: HostMessage[] = [];
+  private messageCallbacks: Map<string, ((response: HostMessage) => void)[]> = new Map();
+  private static readonly MAX_PENDING_MESSAGES = 100;
+
+  /**
+   * 初始化 Host 通信
+   */
+  init(): void {
+    // 监听来自 Host 的消息（通过 UI 转发）
+    pixso.on("run", () => {
+      console.log("Sandbox 运行中，等待 Host 就绪");
+    });
+
+    // Host 会在 mounted 时发送 host-ready 消息
+    // sandbox 通过 UI 接收这些消息
+    console.log("HostCommunicationManager 已初始化，等待 Host 消息");
+  }
+
+  /**
+   * 处理来自 Host 的消息
+   * 这些消息通过 hostApi.sandbox.postMessage 发送，并由 pixso.ui.onmessage 接收
+   */
+  handleHostMessage(message: HostMessage): void {
+    console.log("Sandbox 收到 Host 消息:", message);
+
+    switch (message.type) {
+      case "host-ready":
+        this.hostReady = true;
+        console.log("Host 已就绪，版本:", message.data?.version);
+        // 通知 UI Host 已就绪
+        pixso.ui.postMessage({
+          type: "host-ready",
+          data: message.data,
+        });
+        // 发送待处理的消息
+        this.flushPendingMessages();
+        break;
+
+      case "pong":
+        this.hostReady = true;
+        console.log("Host 心跳响应正常");
+        break;
+
+      case "host-unmounting":
+        this.hostReady = false;
+        console.log("Host 即将卸载");
+        // 通知 UI Host 即将卸载
+        pixso.ui.postMessage({
+          type: "host-unmounting",
+        });
+        break;
+
+      case "host-status-response":
+        console.log("Host 状态:", message.data);
+        // 通知 UI Host 状态
+        pixso.ui.postMessage({
+          type: "host-status",
+          data: message.data,
+        });
+        this.notifyCallbacks("host-status", message);
+        break;
+
+      case "custom-action-result":
+        console.log("自定义操作结果:", message.data);
+        // 通知 UI 自定义操作结果
+        pixso.ui.postMessage({
+          type: "custom-action-result",
+          data: message.data,
+        });
+        this.notifyCallbacks("custom-action", message);
+        break;
+
+      default:
+        console.log("未处理的 Host 消息:", message.type);
+    }
+  }
+
+  /**
+   * 注册消息回调
+   */
+  onResponse(type: string, callback: (response: HostMessage) => void): void {
+    const callbacks = this.messageCallbacks.get(type) || [];
+    callbacks.push(callback);
+    this.messageCallbacks.set(type, callbacks);
+  }
+
+  /**
+   * 通知所有注册的回调
+   */
+  private notifyCallbacks(type: string, message: HostMessage): void {
+    const callbacks = this.messageCallbacks.get(type);
+    if (callbacks) {
+      callbacks.forEach((callback) => callback(message));
+    }
+  }
+
+  /**
+   * 发送消息到 Host（通过 UI 转发）
+   * 
+   * 由于 Pixso sandbox 环境限制，sandbox 不能直接发送消息到 host。
+   * 消息会被转发到 UI，再由 UI 发送到 Host（如果需要）。
+   * 或者等待 Host 主动轮询时响应。
+   */
+  sendToHost(message: HostMessage): void {
+    if (!this.hostReady && message.type !== "ping") {
+      // 如果 Host 未就绪，将消息加入待处理队列
+      // 检查队列是否已满，防止内存泄漏
+      if (this.pendingMessages.length >= HostCommunicationManager.MAX_PENDING_MESSAGES) {
+        const droppedMessage = this.pendingMessages.shift();
+        console.warn(
+          "待处理消息队列已满，丢弃最早的消息:",
+          droppedMessage?.type,
+          "时间戳:",
+          droppedMessage?.timestamp
+        );
+      }
+      this.pendingMessages.push(message);
+      console.log("Host 未就绪，消息已加入队列:", message.type);
+      return;
+    }
+
+    // 将消息转发到 UI，UI 可以决定是否需要进一步处理
+    // 注意：实际的 Host 通信是通过 UI -> Host 的间接方式完成
+    pixso.ui.postMessage({
+      type: "sandbox-to-host",
+      data: message,
+    });
+    console.log("消息已转发到 UI（目标: Host）:", message);
+  }
+
+  /**
+   * 发送待处理的消息
+   */
+  private flushPendingMessages(): void {
+    while (this.pendingMessages.length > 0) {
+      const message = this.pendingMessages.shift();
+      if (message) {
+        this.sendToHost(message);
+      }
+    }
+  }
+
+  /**
+   * 检查 Host 是否就绪
+   */
+  isHostReady(): boolean {
+    return this.hostReady;
+  }
+
+  /**
+   * 请求 Host 显示插件坞
+   */
+  requestShowDock(): void {
+    this.sendToHost({ type: "show-dock", timestamp: Date.now() });
+  }
+
+  /**
+   * 请求 Host 执行自定义操作
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  requestCustomAction(data: any): void {
+    this.sendToHost({ type: "custom-action", data, timestamp: Date.now() });
+  }
+}
+
+// 创建 Host 通信管理器实例
+const hostCommunication = new HostCommunicationManager();
+
+/**
  * 布局约束类型映射（从内部类型到 Pixso 类型）
  */
 const CONSTRAINT_TYPE_MAP: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE"> = {
@@ -76,9 +270,36 @@ async function ensureFontLoaded(): Promise<void> {
 
 pixso.showUI(__html__, { width: 400, height: 520 });
 
+// 初始化 Host 通信
+hostCommunication.init();
+
 pixso.ui.onmessage = async (msg) => {
+  // 检查是否为 Host 消息转发
+  if (msg.type === "host-message") {
+    hostCommunication.handleHostMessage(msg.data);
+    return;
+  }
+
   if (msg.type === "upload-image") {
     await handleImageUpload(msg.data, msg.fileName);
+  } else if (msg.type === "request-host-status") {
+    // 请求 Host 状态
+    const timestamp = Date.now();
+    hostCommunication.sendToHost({ type: "host-status", timestamp });
+    // 同时返回 Sandbox 端的状态
+    pixso.ui.postMessage({
+      type: "sandbox-status",
+      data: {
+        hostReady: hostCommunication.isHostReady(),
+        timestamp,
+      },
+    });
+  } else if (msg.type === "show-plugin-dock") {
+    // 请求显示插件坞
+    hostCommunication.requestShowDock();
+  } else if (msg.type === "custom-host-action") {
+    // 执行自定义 Host 操作
+    hostCommunication.requestCustomAction(msg.data);
   } else if (msg.type === "create-rectangles") {
     // 保留原有功能以便兼容
     const nodes: SceneNode[] = [];
