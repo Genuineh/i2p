@@ -3,6 +3,13 @@ import {
   ImageAnalysisResult,
   RecognizedElement,
   ImageRecognitionConfig,
+  ColorInfo,
+  GradientInfo,
+  ElementEffect,
+  ShadowEffect,
+  BlurEffect,
+  LayoutConstraints,
+  ConstraintType,
 } from "./src/services";
 
 // 图片识别配置
@@ -93,7 +100,8 @@ async function handleImageUpload(imageData: string, fileName: string): Promise<v
   try {
     // 使用图片识别服务分析图片
     // 默认使用本地处理器，如需使用 OpenAPI 服务，可改为 'openapi'
-    const analysisResult = await imageRecognitionManager.analyze(imageData, "local");
+    // 启用布局分析以生成响应式约束
+    const analysisResult = await imageRecognitionManager.analyze(imageData, "local", true);
 
     if (!analysisResult.success) {
       throw new Error(analysisResult.error || "图片分析失败");
@@ -102,7 +110,7 @@ async function handleImageUpload(imageData: string, fileName: string): Promise<v
     console.log("分析结果:", analysisResult);
 
     // 根据分析结果生成设计元素
-    const nodes = await generateDesignElements(analysisResult, fileName);
+    const nodes = await generateDesignElements(analysisResult, fileName, imageData);
 
     // 选中生成的元素并调整视图
     if (nodes.length > 0) {
@@ -128,11 +136,13 @@ async function handleImageUpload(imageData: string, fileName: string): Promise<v
  * 根据分析结果生成 Pixso 设计元素
  * @param analysisResult - 图片分析结果
  * @param fileName - 文件名
+ * @param originalImageData - 原始图片数据
  * @returns 生成的节点列表
  */
 async function generateDesignElements(
   analysisResult: ImageAnalysisResult,
-  fileName: string
+  fileName: string,
+  originalImageData: string
 ): Promise<SceneNode[]> {
   const nodes: SceneNode[] = [];
 
@@ -148,8 +158,18 @@ async function generateDesignElements(
 
   // 遍历识别到的元素并创建对应的 Pixso 元素
   for (const element of analysisResult.elements) {
-    const node = await createElementNode(element);
+    const node = await createElementNode(element, originalImageData);
     if (node) {
+      // 应用布局约束
+      if (element.layout?.constraints) {
+        applyConstraints(node, element.layout.constraints);
+      }
+
+      // 应用效果（阴影、模糊）
+      if (element.effects && element.effects.length > 0) {
+        applyEffects(node, element.effects);
+      }
+
       frame.appendChild(node);
       nodes.push(node);
     }
@@ -161,9 +181,13 @@ async function generateDesignElements(
 /**
  * 根据识别到的元素创建 Pixso 节点
  * @param element - 识别到的元素
+ * @param originalImageData - 原始图片数据
  * @returns 创建的节点
  */
-async function createElementNode(element: RecognizedElement): Promise<SceneNode | null> {
+async function createElementNode(
+  element: RecognizedElement,
+  originalImageData: string
+): Promise<SceneNode | null> {
   const color = element.color || { r: 0.9, g: 0.9, b: 0.9 };
 
   switch (element.type) {
@@ -173,7 +197,10 @@ async function createElementNode(element: RecognizedElement): Promise<SceneNode 
       rect.x = element.x;
       rect.y = element.y;
       rect.resize(element.width || 100, element.height || 100);
-      rect.fills = [{ type: "SOLID", color: { r: color.r, g: color.g, b: color.b } }];
+
+      // 应用填充（支持渐变）
+      rect.fills = createFills(color, element.gradient);
+
       return rect;
     }
 
@@ -182,7 +209,10 @@ async function createElementNode(element: RecognizedElement): Promise<SceneNode 
       ellipse.x = element.x;
       ellipse.y = element.y;
       ellipse.resize(element.width || 100, element.height || 100);
-      ellipse.fills = [{ type: "SOLID", color: { r: color.r, g: color.g, b: color.b } }];
+
+      // 应用填充（支持渐变）
+      ellipse.fills = createFills(color, element.gradient);
+
       return ellipse;
     }
 
@@ -210,17 +240,258 @@ async function createElementNode(element: RecognizedElement): Promise<SceneNode 
     }
 
     case "image": {
-      // 图片元素暂时用矩形占位
-      const rect = pixso.createRectangle();
-      rect.x = element.x;
-      rect.y = element.y;
-      rect.resize(element.width || 100, element.height || 100);
-      rect.fills = [{ type: "SOLID", color: { r: 0.8, g: 0.8, b: 0.8 } }];
-      rect.name = "Image Placeholder";
-      return rect;
+      // 处理图片元素
+      return await createImageNode(element, originalImageData);
     }
 
     default:
       return null;
   }
+}
+
+/**
+ * 创建图片节点
+ * @param element - 识别到的图片元素
+ * @param originalImageData - 原始图片数据（用于区域裁剪）
+ * @returns 创建的节点
+ */
+async function createImageNode(
+  element: RecognizedElement,
+  originalImageData: string
+): Promise<SceneNode | null> {
+  try {
+    // 如果元素有自己的图片数据，使用它
+    const imageDataToUse = element.imageData || originalImageData;
+
+    if (!imageDataToUse) {
+      // 如果没有图片数据，创建占位符
+      return createImagePlaceholder(element);
+    }
+
+    // 从 Base64 数据创建图片
+    const imageBytes = base64ToUint8Array(imageDataToUse);
+    const image = pixso.createImage(imageBytes);
+
+    // 创建矩形并设置图片填充
+    const rect = pixso.createRectangle();
+    rect.x = element.x;
+    rect.y = element.y;
+    rect.resize(element.width || 100, element.height || 100);
+    rect.name = "Image";
+
+    // 设置图片填充
+    rect.fills = [
+      {
+        type: "IMAGE",
+        scaleMode: "FILL",
+        imageHash: image.hash,
+      },
+    ];
+
+    return rect;
+  } catch (error) {
+    console.error("创建图片节点失败:", error);
+    // 失败时返回占位符
+    return createImagePlaceholder(element);
+  }
+}
+
+/**
+ * 创建图片占位符
+ * @param element - 元素信息
+ * @returns 占位符节点
+ */
+function createImagePlaceholder(element: RecognizedElement): SceneNode {
+  const rect = pixso.createRectangle();
+  rect.x = element.x;
+  rect.y = element.y;
+  rect.resize(element.width || 100, element.height || 100);
+  rect.fills = [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9 } }];
+  rect.strokes = [{ type: "SOLID", color: { r: 0.7, g: 0.7, b: 0.7 } }];
+  rect.strokeWeight = 1;
+  rect.name = "Image Placeholder";
+  return rect;
+}
+
+/**
+ * 创建填充数组（支持纯色和渐变）
+ * @param color - 纯色信息
+ * @param gradient - 渐变信息（可选）
+ * @returns 填充数组
+ */
+function createFills(color: ColorInfo, gradient?: GradientInfo): Paint[] {
+  if (gradient && gradient.stops.length >= 2) {
+    return [createGradientPaint(gradient)];
+  }
+
+  return [
+    {
+      type: "SOLID",
+      color: { r: color.r, g: color.g, b: color.b },
+      opacity: color.a ?? 1,
+    },
+  ];
+}
+
+/**
+ * 创建渐变填充
+ * @param gradient - 渐变信息
+ * @returns 渐变填充
+ */
+function createGradientPaint(gradient: GradientInfo): GradientPaint {
+  // 转换渐变类型
+  const gradientTypeMap: Record<string, GradientPaint["type"]> = {
+    linear: "GRADIENT_LINEAR",
+    radial: "GRADIENT_RADIAL",
+    angular: "GRADIENT_ANGULAR",
+    diamond: "GRADIENT_DIAMOND",
+  };
+
+  const gradientType = gradientTypeMap[gradient.type] || "GRADIENT_LINEAR";
+
+  // 转换颜色停止点
+  const gradientStops: ColorStop[] = gradient.stops.map((stop) => ({
+    position: stop.position,
+    color: {
+      r: stop.color.r,
+      g: stop.color.g,
+      b: stop.color.b,
+      a: stop.color.a ?? 1,
+    },
+  }));
+
+  // 计算渐变变换矩阵（基于角度）
+  const angle = gradient.angle ?? 0;
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  // 创建变换矩阵
+  const gradientTransform: Transform = [
+    [cos, -sin, 0.5 - cos * 0.5 + sin * 0.5],
+    [sin, cos, 0.5 - sin * 0.5 - cos * 0.5],
+  ];
+
+  return {
+    type: gradientType,
+    gradientTransform,
+    gradientStops,
+  };
+}
+
+/**
+ * 应用布局约束
+ * @param node - 节点
+ * @param constraints - 约束信息
+ */
+function applyConstraints(node: SceneNode, constraints: LayoutConstraints): void {
+  // 检查节点是否支持约束
+  if (!("constraints" in node)) {
+    return;
+  }
+
+  const constraintTypeMap: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE"> = {
+    min: "MIN",
+    center: "CENTER",
+    max: "MAX",
+    stretch: "STRETCH",
+    scale: "SCALE",
+  };
+
+  // 设置约束
+  (node as RectangleNode).constraints = {
+    horizontal: constraintTypeMap[constraints.horizontal] || "MIN",
+    vertical: constraintTypeMap[constraints.vertical] || "MIN",
+  };
+}
+
+/**
+ * 应用效果（阴影、模糊）
+ * @param node - 节点
+ * @param effects - 效果数组
+ */
+function applyEffects(node: SceneNode, effects: ElementEffect[]): void {
+  // 检查节点是否支持效果
+  if (!("effects" in node)) {
+    return;
+  }
+
+  const pixsoEffects: Effect[] = effects
+    .map((effect) => {
+      if ("offsetX" in effect) {
+        // 阴影效果
+        return createShadowEffect(effect as ShadowEffect);
+      } else if ("radius" in effect) {
+        // 模糊效果
+        return createBlurEffect(effect as BlurEffect);
+      }
+      return null;
+    })
+    .filter((e): e is Effect => e !== null);
+
+  if (pixsoEffects.length > 0) {
+    (node as RectangleNode).effects = pixsoEffects;
+  }
+}
+
+/**
+ * 创建阴影效果
+ * @param shadow - 阴影信息
+ * @returns Pixso 阴影效果
+ */
+function createShadowEffect(shadow: ShadowEffect): DropShadowEffect | InnerShadowEffect {
+  const color: RGBA = {
+    r: shadow.color.r,
+    g: shadow.color.g,
+    b: shadow.color.b,
+    a: shadow.color.a ?? 0.25,
+  };
+
+  if (shadow.type === "inner") {
+    return {
+      type: "INNER_SHADOW",
+      color,
+      offset: { x: shadow.offsetX, y: shadow.offsetY },
+      radius: shadow.blur,
+      spread: shadow.spread ?? 0,
+      visible: true,
+      blendMode: "NORMAL",
+    };
+  }
+
+  return {
+    type: "DROP_SHADOW",
+    color,
+    offset: { x: shadow.offsetX, y: shadow.offsetY },
+    radius: shadow.blur,
+    spread: shadow.spread ?? 0,
+    visible: true,
+    blendMode: "NORMAL",
+  };
+}
+
+/**
+ * 创建模糊效果
+ * @param blur - 模糊信息
+ * @returns Pixso 模糊效果
+ */
+function createBlurEffect(blur: BlurEffect): Effect {
+  return {
+    type: blur.type === "background" ? "BACKGROUND_BLUR" : "LAYER_BLUR",
+    radius: blur.radius,
+    visible: true,
+  };
+}
+
+/**
+ * Base64 字符串转 Uint8Array
+ * @param base64 - Base64 编码的字符串（可能包含 data URL 前缀）
+ * @returns Uint8Array
+ */
+function base64ToUint8Array(base64: string): Uint8Array {
+  // 移除 data URL 前缀
+  const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
+
+  // 使用 Pixso 提供的解码方法
+  return pixso.base64Decode(base64Data);
 }

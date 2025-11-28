@@ -18,6 +18,77 @@ export interface ColorInfo {
 }
 
 /**
+ * 渐变色停止点
+ */
+export interface GradientStop {
+  position: number;
+  color: ColorInfo;
+}
+
+/**
+ * 渐变信息
+ */
+export interface GradientInfo {
+  type: "linear" | "radial" | "angular" | "diamond";
+  stops: GradientStop[];
+  angle?: number; // 用于线性渐变的角度 (0-360)
+}
+
+/**
+ * 阴影效果
+ */
+export interface ShadowEffect {
+  type: "drop" | "inner";
+  color: ColorInfo;
+  offsetX: number;
+  offsetY: number;
+  blur: number;
+  spread?: number;
+}
+
+/**
+ * 模糊效果
+ */
+export interface BlurEffect {
+  type: "layer" | "background";
+  radius: number;
+}
+
+/**
+ * 元素效果（阴影或模糊）
+ */
+export type ElementEffect = ShadowEffect | BlurEffect;
+
+/**
+ * 布局约束类型
+ */
+export type ConstraintType = "min" | "center" | "max" | "stretch" | "scale";
+
+/**
+ * 布局约束信息
+ */
+export interface LayoutConstraints {
+  horizontal: ConstraintType;
+  vertical: ConstraintType;
+}
+
+/**
+ * 布局信息
+ */
+export interface LayoutInfo {
+  constraints?: LayoutConstraints;
+  padding?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  gap?: number;
+  alignment?: "start" | "center" | "end" | "stretch";
+  direction?: "horizontal" | "vertical";
+}
+
+/**
  * 识别到的设计元素
  */
 export interface RecognizedElement {
@@ -27,8 +98,12 @@ export interface RecognizedElement {
   width: number;
   height: number;
   color?: ColorInfo;
+  gradient?: GradientInfo;
+  effects?: ElementEffect[];
+  layout?: LayoutInfo;
   text?: string;
   fontSize?: number;
+  imageData?: string; // Base64 编码的图片数据
   children?: RecognizedElement[];
 }
 
@@ -40,8 +115,46 @@ export interface ImageAnalysisResult {
   height: number;
   elements: RecognizedElement[];
   dominantColors?: ColorInfo[];
+  layoutStructure?: LayoutStructure;
   success: boolean;
   error?: string;
+}
+
+/**
+ * 整体布局结构
+ */
+export interface LayoutStructure {
+  rows: LayoutRow[];
+  columns: LayoutColumn[];
+  gridInfo?: GridInfo;
+}
+
+/**
+ * 布局行信息
+ */
+export interface LayoutRow {
+  y: number;
+  height: number;
+  elements: number[]; // 元素索引
+}
+
+/**
+ * 布局列信息
+ */
+export interface LayoutColumn {
+  x: number;
+  width: number;
+  elements: number[]; // 元素索引
+}
+
+/**
+ * 网格信息
+ */
+export interface GridInfo {
+  columnCount: number;
+  rowCount: number;
+  columnGap: number;
+  rowGap: number;
 }
 
 /**

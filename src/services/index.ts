@@ -6,6 +6,7 @@
 import { ImageAnalysisResult, ImageRecognitionConfig } from "./types";
 import { LocalImageProcessor } from "./localImageProcessor";
 import { OpenApiVisionService } from "./openApiVisionService";
+import { LayoutAnalyzer } from "./layoutAnalyzer";
 
 /**
  * 服务类型
@@ -19,6 +20,7 @@ export type ServiceType = "local" | "openapi";
 export class ImageRecognitionManager {
   private localProcessor: LocalImageProcessor;
   private openApiService: OpenApiVisionService | null = null;
+  private layoutAnalyzer: LayoutAnalyzer;
   private config: ImageRecognitionConfig;
 
   constructor(config: ImageRecognitionConfig = {}) {
@@ -32,6 +34,9 @@ export class ImageRecognitionManager {
       colorThreshold: config.colorThreshold,
       minRegionSize: config.minRegionSize,
     });
+
+    // 初始化布局分析器
+    this.layoutAnalyzer = new LayoutAnalyzer();
 
     // 如果提供了 OpenAPI 配置，初始化 OpenAPI 服务
     if (config.openApiKey) {
@@ -53,30 +58,46 @@ export class ImageRecognitionManager {
    * 默认使用本地处理器，如果配置了 OpenAPI 服务则优先尝试使用
    * @param imageData - Base64 编码的图片数据
    * @param preferredService - 首选的服务类型
+   * @param enableLayoutAnalysis - 是否启用布局分析
    */
   async analyze(
     imageData: string,
-    preferredService: ServiceType = "local"
+    preferredService: ServiceType = "local",
+    enableLayoutAnalysis: boolean = true
   ): Promise<ImageAnalysisResult> {
+    let result: ImageAnalysisResult;
+
     // 根据首选服务类型决定处理顺序
     if (preferredService === "openapi" && this.openApiService) {
       // 尝试使用 OpenAPI 服务
-      const result = await this.tryOpenApi(imageData);
-      if (result.success) {
-        return result;
-      }
-
-      // OpenAPI 失败，如果启用了本地回退，则使用本地处理器
-      if (this.config.enableLocalFallback) {
+      result = await this.tryOpenApi(imageData);
+      if (!result.success && this.config.enableLocalFallback) {
         console.log("OpenAPI 服务失败，回退到本地处理器");
-        return this.tryLocal(imageData);
+        result = await this.tryLocal(imageData);
       }
-
-      return result;
+    } else {
+      // 默认使用本地处理器
+      result = await this.tryLocal(imageData);
     }
 
-    // 默认使用本地处理器
-    return this.tryLocal(imageData);
+    // 如果分析成功且启用了布局分析，添加布局信息
+    if (result.success && enableLayoutAnalysis && result.elements.length > 0) {
+      // 分析布局结构
+      result.layoutStructure = this.layoutAnalyzer.analyzeStructure(
+        result.elements,
+        result.width,
+        result.height
+      );
+
+      // 为每个元素生成布局约束
+      result.elements = this.layoutAnalyzer.generateAllConstraints(
+        result.elements,
+        result.width,
+        result.height
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -198,3 +219,4 @@ export class ImageRecognitionManager {
 export * from "./types";
 export { LocalImageProcessor } from "./localImageProcessor";
 export { OpenApiVisionService } from "./openApiVisionService";
+export { LayoutAnalyzer } from "./layoutAnalyzer";
