@@ -11,12 +11,25 @@
 - 使用 Pixso 官方插件模板初始化 React + TypeScript 项目
 - 创建项目文档结构 (README.md, TODO.md, CHANGELOG.md, CONTRIBUTING.md)
 - 规划"上传截图生成设计内容"功能的实现计划
+- **阶段二：图片处理核心功能**
+  - 实现图片识别服务模块化架构 (`src/services/`)
+  - 实现本地图像处理服务 (`LocalImageProcessor`) - 使用 Canvas API 进行颜色和区域分析
+  - 实现 OpenAPI 图片识别服务 (`OpenApiVisionService`) - 支持多个 AI 提供商:
+    - **OpenAI**: GPT-4 Vision API
+    - **阿里云**: 通义千问 (Qwen-VL) 视觉模型
+    - **Google**: Gemini 2.0 Flash 视觉模型
+  - 所有 AI 提供商使用统一的 OpenAI 兼容接口，方便切换
+  - 实现图片识别管理器 (`ImageRecognitionManager`) - 统一管理和调度识别服务，支持服务降级
+  - 实现图片压缩工具函数 (`src/utils/imageUtils.ts`)
+  - 集成图片识别到主线程 (`main.ts`)
+  - 实现基础 Pixso 元素生成 (矩形、圆形、文本、线条、框架)
+  - 实现 UI 与主线程的消息通信机制 (处理进度、完成、错误状态反馈)
 
 ### 计划中
-- 图片上传功能
-- 图片识别与分析
-- Pixso 设计元素生成
-- UI 界面优化
+- 图片元素完整支持
+- 渐变和阴影效果支持
+- 布局结构分析和还原
+- Host 脚本扩展功能
 
 ## [1.0.0] - 待发布
 

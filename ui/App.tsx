@@ -1,5 +1,12 @@
 import * as React from "react";
-import { useState, useCallback, useRef, type DragEvent, type ChangeEvent } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type DragEvent,
+  type ChangeEvent,
+} from "react";
 import "./app.css";
 
 // 支持的图片格式
@@ -26,6 +33,41 @@ const App = () => {
     message: "",
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 监听来自主线程的消息
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg) return;
+
+      switch (msg.type) {
+        case "processing":
+          setUploadState({
+            status: "uploading",
+            progress: 50,
+            message: msg.message || "正在处理...",
+          });
+          break;
+        case "complete":
+          setUploadState({
+            status: "success",
+            progress: 100,
+            message: msg.message || "处理完成",
+          });
+          break;
+        case "error":
+          setUploadState({
+            status: "error",
+            progress: 0,
+            message: msg.message || "处理失败",
+          });
+          break;
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   // 验证文件
   const validateFile = (file: File): string | null => {
