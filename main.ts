@@ -287,6 +287,38 @@ async function ensureFontLoaded(): Promise<void> {
 // 关闭插件前的延迟时间（毫秒），确保 UI 有时间接收消息
 const CLOSE_PLUGIN_DELAY_MS = 100;
 
+// 进度更新相关常量
+const PROGRESS = {
+  // 沙箱收到数据后的初始进度
+  INITIAL_PROCESSING: 55,
+  // 开始生成元素时的进度
+  ELEMENT_GENERATION_START: 60,
+  // 元素生成完成时的最大进度
+  ELEMENT_GENERATION_MAX: 85,
+  // 元素生成进度范围
+  ELEMENT_GENERATION_RANGE: 25, // MAX - START
+  // 进度更新间隔：至少每 5 个元素或每 10% 更新一次
+  MIN_UPDATE_INTERVAL: 5,
+  UPDATE_PERCENTAGE: 10,
+};
+
+/**
+ * 安全地向 UI 发送消息
+ * 包装 pixso.ui.postMessage 以确保错误被捕获和记录
+ * @param message - 要发送的消息对象
+ */
+function safePostMessage(message: { type: string; [key: string]: unknown }): void {
+  try {
+    pixso.ui.postMessage(message);
+    logger.debug("SafePostMessage", "消息发送成功", { type: message.type });
+  } catch (error) {
+    logger.error("SafePostMessage", "消息发送失败", {
+      type: message.type,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 pixso.showUI(__html__, { width: 400, height: 560 });
 
 // 初始化 Host 通信
@@ -317,13 +349,31 @@ pixso.ui.onmessage = async (msg) => {
   if (msg.type === "openapi-analysis-result") {
     // 处理来自 UI 的 OpenAPI 分析结果
     // UI 层完成网络请求后，将结果发送到 sandbox 进行元素生成
-    await handleOpenApiAnalysisResult(msg.data, msg.fileName, msg.originalImageData);
+    logger.info("Main", "沙箱收到 openapi-analysis-result 消息", {
+      hasData: !!msg.data,
+      hasFileName: !!msg.fileName,
+      hasImageData: !!msg.originalImageData,
+    });
+    
+    try {
+      await handleOpenApiAnalysisResult(msg.data, msg.fileName, msg.originalImageData);
+    } catch (error) {
+      // 确保任何未捕获的错误都能通知 UI
+      const errorMessage = error instanceof Error ? error.message : "未知错误";
+      logger.error("Main", "处理 openapi-analysis-result 时发生未捕获错误", { error: errorMessage });
+      safePostMessage({
+        type: "error",
+        message: `处理失败: ${errorMessage}`,
+        suggestion: "请刷新插件后重试",
+      });
+    }
+    return;
   } else if (msg.type === "request-host-status") {
     // 请求 Host 状态
     const timestamp = Date.now();
     hostCommunication.sendToHost({ type: "host-status", timestamp });
     // 同时返回 Sandbox 端的状态
-    pixso.ui.postMessage({
+    safePostMessage({
       type: "sandbox-status",
       data: {
         hostReady: hostCommunication.isHostReady(),
@@ -369,6 +419,14 @@ async function handleOpenApiAnalysisResult(
   originalImageData: string
 ): Promise<void> {
   const startTime = Date.now();
+  
+  // 立即发送确认消息，避免 UI 超时
+  safePostMessage({ 
+    type: "processing", 
+    message: "沙箱已收到数据，正在处理...", 
+    progress: PROGRESS.INITIAL_PROCESSING 
+  });
+  
   logger.info("OpenApiResult", "收到 AI 分析结果", {
     fileName,
     elementsCount: analysisResult.elements.length,
@@ -383,7 +441,7 @@ async function handleOpenApiAnalysisResult(
     }
 
     // 更新进度
-    pixso.ui.postMessage({ type: "processing", message: "正在生成设计元素...", progress: 60 });
+    safePostMessage({ type: "processing", message: "正在生成设计元素...", progress: 60 });
 
     // 根据分析结果生成设计元素
     const nodes = await generateDesignElements(analysisResult, fileName, originalImageData);
@@ -391,7 +449,7 @@ async function handleOpenApiAnalysisResult(
     logger.info("OpenApiResult", "设计元素生成完成", { nodesCount: nodes.length });
 
     // 更新进度
-    pixso.ui.postMessage({ type: "processing", message: "正在完成设计...", progress: 90 });
+    safePostMessage({ type: "processing", message: "正在完成设计...", progress: 90 });
 
     // 选中生成的元素并调整视图
     if (nodes.length > 0) {
@@ -406,7 +464,7 @@ async function handleOpenApiAnalysisResult(
     });
 
     // 通知 UI 处理完成
-    pixso.ui.postMessage({
+    safePostMessage({
       type: "complete",
       message: `设计生成完成，共创建 ${nodes.length} 个元素（耗时 ${(duration / 1000).toFixed(1)}s）`,
     });
@@ -428,7 +486,7 @@ async function handleOpenApiAnalysisResult(
     });
 
     const suggestion = getErrorSuggestion(errorType, errorMessage);
-    pixso.ui.postMessage({
+    safePostMessage({
       type: "error",
       message: `处理失败: ${errorMessage}`,
       suggestion,
@@ -452,9 +510,10 @@ async function generateDesignElements(
   originalImageData: string
 ): Promise<SceneNode[]> {
   const nodes: SceneNode[] = [];
+  const totalElements = analysisResult.elements.length;
 
   logger.debug("ElementGeneration", "开始生成设计元素", {
-    elementsCount: analysisResult.elements.length,
+    elementsCount: totalElements,
   });
 
   // 创建一个 Frame 作为容器
@@ -470,8 +529,18 @@ async function generateDesignElements(
   // 遍历识别到的元素并创建对应的 Pixso 元素
   let successCount = 0;
   let failCount = 0;
+  
+  // 计算进度更新间隔：每处理一定百分比的元素或至少每 N 个元素发送一次进度更新
+  const progressUpdateInterval = Math.max(
+    1, 
+    Math.min(
+      PROGRESS.MIN_UPDATE_INTERVAL, 
+      Math.floor(totalElements / PROGRESS.UPDATE_PERCENTAGE)
+    )
+  );
 
-  for (const element of analysisResult.elements) {
+  for (let i = 0; i < analysisResult.elements.length; i++) {
+    const element = analysisResult.elements[i];
     try {
       const node = await createElementNode(element, originalImageData);
       if (node) {
@@ -494,6 +563,19 @@ async function generateDesignElements(
       logger.warn("ElementGeneration", "创建元素失败", {
         elementType: element.type,
         error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    
+    // 定期发送进度更新，防止 UI 超时
+    if ((i + 1) % progressUpdateInterval === 0 || i === totalElements - 1) {
+      const progress = Math.min(
+        PROGRESS.ELEMENT_GENERATION_MAX, 
+        PROGRESS.ELEMENT_GENERATION_START + Math.floor(((i + 1) / totalElements) * PROGRESS.ELEMENT_GENERATION_RANGE)
+      );
+      safePostMessage({ 
+        type: "processing", 
+        message: `正在生成设计元素... (${i + 1}/${totalElements})`, 
+        progress 
       });
     }
   }
