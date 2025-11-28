@@ -416,6 +416,10 @@ pixso.ui.onmessage = async (msg) => {
       updateRecognitionConfig(msg.settings);
     }
     await handleImageUpload(msg.data, msg.fileName, msg.settings);
+  } else if (msg.type === "openapi-analysis-result") {
+    // 处理来自 UI 的 OpenAPI 分析结果
+    // UI 层完成网络请求后，将结果发送到 sandbox 进行元素生成
+    await handleOpenApiAnalysisResult(msg.data, msg.fileName, msg.originalImageData);
   } else if (msg.type === "update-settings") {
     // 处理设置更新消息
     if (msg.settings) {
