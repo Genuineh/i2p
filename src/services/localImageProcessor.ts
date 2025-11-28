@@ -51,10 +51,42 @@ export class LocalImageProcessor implements IImageRecognitionService {
   }
 
   async isAvailable(): Promise<boolean> {
-    // Canvas API 在浏览器环境中始终可用
-    const available = typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined";
-    console.log(`[LocalImageProcessor] isAvailable: ${available}`);
-    return available;
+    // 检查基本 DOM API 是否存在
+    if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined") {
+      console.log("[LocalImageProcessor] isAvailable: false (no DOM/Canvas API)");
+      return false;
+    }
+
+    // 实际测试 Canvas 操作是否可用
+    // 在 Pixso 沙箱环境中，Canvas API 可能存在但无法正常工作
+    try {
+      const testCanvas = document.createElement("canvas");
+      testCanvas.width = 1;
+      testCanvas.height = 1;
+      const ctx = testCanvas.getContext("2d");
+      if (!ctx) {
+        console.log("[LocalImageProcessor] isAvailable: false (cannot get 2d context)");
+        return false;
+      }
+
+      // 尝试实际绘制操作
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, 1, 1);
+
+      // 尝试读取像素数据 - 这在某些沙箱环境中可能失败
+      const imageData = ctx.getImageData(0, 0, 1, 1);
+      if (!imageData || !imageData.data || imageData.data.length !== 4) {
+        console.log("[LocalImageProcessor] isAvailable: false (cannot read pixel data)");
+        return false;
+      }
+
+      console.log("[LocalImageProcessor] isAvailable: true");
+      return true;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.log(`[LocalImageProcessor] isAvailable: false (Canvas test failed: ${errorMessage})`);
+      return false;
+    }
   }
 
   async analyze(imageData: string): Promise<ImageAnalysisResult> {
@@ -69,17 +101,26 @@ export class LocalImageProcessor implements IImageRecognitionService {
 
       // 创建 Canvas 并绘制图片
       console.log("[LocalImageProcessor] 创建 Canvas 并绘制图片...");
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
+      let canvas: HTMLCanvasElement;
+      let ctx: CanvasRenderingContext2D | null;
+      let imageDataObj: ImageData;
 
-      if (!ctx) {
-        throw new Error("无法创建 Canvas 上下文");
+      try {
+        canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          throw new Error("无法创建 Canvas 上下文，沙箱环境可能不支持 Canvas API");
+        }
+
+        ctx.drawImage(img, 0, 0);
+        imageDataObj = ctx.getImageData(0, 0, width, height);
+      } catch (canvasError) {
+        const canvasErrorMsg = canvasError instanceof Error ? canvasError.message : String(canvasError);
+        throw new Error(`Canvas 操作失败: ${canvasErrorMsg}。请使用 OpenAPI 模式处理图片`);
       }
-
-      ctx.drawImage(img, 0, 0);
-      const imageDataObj = ctx.getImageData(0, 0, width, height);
 
       // 分析图片
       console.log("[LocalImageProcessor] 正在提取主要颜色...");
@@ -116,22 +157,60 @@ export class LocalImageProcessor implements IImageRecognitionService {
    */
   private loadImage(imageData: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
+      // 在沙箱环境中，Image 构造函数可能不可用或行为异常
+      if (typeof Image === "undefined") {
+        reject(new Error("沙箱环境不支持 Image 对象，请使用 OpenAPI 模式"));
+        return;
+      }
+
       const img = new Image();
       const LOAD_TIMEOUT_MS = 10000; // 10秒超时
+      let isResolved = false;
+
+      const cleanup = () => {
+        isResolved = true;
+        img.onload = null;
+        img.onerror = null;
+      };
 
       const timeoutId = setTimeout(() => {
-        reject(new Error("图片加载超时，请检查图片是否有效或尝试使用 OpenAPI 模式"));
+        if (!isResolved) {
+          cleanup();
+          reject(new Error("图片加载超时，沙箱环境可能不支持本地图片处理，请使用 OpenAPI 模式"));
+        }
       }, LOAD_TIMEOUT_MS);
 
       img.onload = () => {
-        clearTimeout(timeoutId);
-        resolve(img);
+        if (!isResolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve(img);
+        }
       };
+
       img.onerror = () => {
-        clearTimeout(timeoutId);
-        reject(new Error("图片加载失败"));
+        if (!isResolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(new Error("图片加载失败，请检查图片格式是否正确"));
+        }
       };
-      img.src = imageData;
+
+      // 设置 crossOrigin 以支持跨域图片（如果是 URL）
+      if (imageData.startsWith("http")) {
+        img.crossOrigin = "anonymous";
+      }
+
+      try {
+        img.src = imageData;
+      } catch (error) {
+        if (!isResolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          reject(new Error(`设置图片源失败: ${errorMessage}`));
+        }
+      }
     });
   }
 

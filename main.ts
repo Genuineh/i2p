@@ -54,18 +54,24 @@ function getErrorSuggestion(errorType: ProcessErrorType, errorMessage: string): 
     case ProcessErrorType.FONT_LOADING:
       return "字体加载失败，部分文本可能无法正确显示";
     case ProcessErrorType.TIMEOUT:
-      return "处理超时，请尝试使用较小的图片或切换处理模式";
+      return "处理超时，请在设置中切换为 OpenAPI 模式处理图片";
     case ProcessErrorType.CANVAS_ERROR:
-      return "沙箱环境不支持本地图片处理，请使用 OpenAPI 模式";
+      return "沙箱环境不支持本地图片处理，请在设置中切换为 OpenAPI 模式";
     default:
       if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
         return "网络连接失败，请检查网络后重试";
       }
       if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
-        return "处理超时，请尝试使用较小的图片或切换处理模式";
+        return "处理超时，请在设置中切换为 OpenAPI 模式处理图片";
       }
-      if (errorMessage.includes("Canvas") || errorMessage.includes("canvas")) {
-        return "沙箱环境不支持本地图片处理，请使用 OpenAPI 模式";
+      if (
+        errorMessage.includes("Canvas") ||
+        errorMessage.includes("canvas") ||
+        errorMessage.includes("沙箱") ||
+        errorMessage.includes("sandbox") ||
+        errorMessage.includes("OpenAPI 模式")
+      ) {
+        return "沙箱环境不支持本地图片处理，请在设置中切换为 OpenAPI 模式";
       }
       return "请刷新插件后重试，如问题持续请联系支持";
   }
@@ -564,7 +570,13 @@ async function handleImageUpload(
     let errorType = ProcessErrorType.UNKNOWN;
     if (errorMessage.includes("超时") || errorMessage.includes("timeout")) {
       errorType = ProcessErrorType.TIMEOUT;
-    } else if (errorMessage.includes("Canvas") || errorMessage.includes("canvas")) {
+    } else if (
+      errorMessage.includes("Canvas") ||
+      errorMessage.includes("canvas") ||
+      errorMessage.includes("沙箱") ||
+      errorMessage.includes("sandbox") ||
+      errorMessage.includes("OpenAPI 模式")
+    ) {
       errorType = ProcessErrorType.CANVAS_ERROR;
     } else if (errorMessage.includes("分析")) {
       errorType = ProcessErrorType.IMAGE_ANALYSIS;
