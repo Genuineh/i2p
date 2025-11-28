@@ -40,6 +40,7 @@ class HostCommunicationManager {
   private hostReady: boolean = false;
   private pendingMessages: HostMessage[] = [];
   private messageCallbacks: Map<string, ((response: HostMessage) => void)[]> = new Map();
+  private static readonly MAX_PENDING_MESSAGES = 100;
 
   /**
    * 初始化 Host 通信
@@ -143,6 +144,11 @@ class HostCommunicationManager {
   sendToHost(message: HostMessage): void {
     if (!this.hostReady && message.type !== "ping") {
       // 如果 Host 未就绪，将消息加入待处理队列
+      // 检查队列是否已满，防止内存泄漏
+      if (this.pendingMessages.length >= HostCommunicationManager.MAX_PENDING_MESSAGES) {
+        console.warn("待处理消息队列已满，丢弃最早的消息");
+        this.pendingMessages.shift();
+      }
       this.pendingMessages.push(message);
       console.log("Host 未就绪，消息已加入队列:", message.type);
       return;

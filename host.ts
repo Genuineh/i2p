@@ -32,6 +32,7 @@ type MessageHandler = (message: HostMessage) => void;
 class HostScriptManager {
   private messageHandlers: Map<string, MessageHandler[]> = new Map();
   private isInitialized: boolean = false;
+  private sandboxMessageHandler: ((message: HostMessage) => void) | null = null;
 
   /**
    * 初始化 Host 脚本管理器
@@ -52,10 +53,12 @@ class HostScriptManager {
    * 设置 Sandbox 消息监听器
    */
   private setupSandboxListener(): void {
-    hostApi.sandbox.on("message", (message: HostMessage) => {
+    // 保存监听器引用以便后续清理
+    this.sandboxMessageHandler = (message: HostMessage) => {
       console.log("Host 收到 Sandbox 消息:", message);
       this.handleMessage(message);
-    });
+    };
+    hostApi.sandbox.on("message", this.sandboxMessageHandler);
   }
 
   /**
@@ -152,7 +155,13 @@ class HostScriptManager {
    * 清理资源
    */
   cleanup(): void {
+    // 移除 Sandbox 消息监听器
+    if (this.sandboxMessageHandler) {
+      hostApi.sandbox.off("message", this.sandboxMessageHandler);
+      this.sandboxMessageHandler = null;
+    }
     this.messageHandlers.clear();
+    this.isInitialized = false;
     console.log("HostScriptManager 资源已清理");
   }
 }
