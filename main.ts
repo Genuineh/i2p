@@ -12,6 +12,17 @@ import {
   ConstraintType,
 } from "./src/services";
 
+/**
+ * 布局约束类型映射（从内部类型到 Pixso 类型）
+ */
+const CONSTRAINT_TYPE_MAP: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE"> = {
+  min: "MIN",
+  center: "CENTER",
+  max: "MAX",
+  stretch: "STRETCH",
+  scale: "SCALE",
+};
+
 // 图片识别配置
 // 可以通过环境变量或配置文件设置 OpenAPI 配置
 const recognitionConfig: ImageRecognitionConfig = {
@@ -390,18 +401,10 @@ function applyConstraints(node: SceneNode, constraints: LayoutConstraints): void
     return;
   }
 
-  const constraintTypeMap: Record<ConstraintType, "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE"> = {
-    min: "MIN",
-    center: "CENTER",
-    max: "MAX",
-    stretch: "STRETCH",
-    scale: "SCALE",
-  };
-
   // 设置约束
   (node as RectangleNode).constraints = {
-    horizontal: constraintTypeMap[constraints.horizontal] || "MIN",
-    vertical: constraintTypeMap[constraints.vertical] || "MIN",
+    horizontal: CONSTRAINT_TYPE_MAP[constraints.horizontal] || "MIN",
+    vertical: CONSTRAINT_TYPE_MAP[constraints.vertical] || "MIN",
   };
 }
 
