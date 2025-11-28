@@ -52,17 +52,23 @@ export class LocalImageProcessor implements IImageRecognitionService {
 
   async isAvailable(): Promise<boolean> {
     // Canvas API 在浏览器环境中始终可用
-    return typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined";
+    const available = typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined";
+    console.log(`[LocalImageProcessor] isAvailable: ${available}`);
+    return available;
   }
 
   async analyze(imageData: string): Promise<ImageAnalysisResult> {
+    console.log("[LocalImageProcessor] 开始分析图片...");
     try {
       // 加载图片
+      console.log("[LocalImageProcessor] 正在加载图片...");
       const img = await this.loadImage(imageData);
       const width = img.width;
       const height = img.height;
+      console.log(`[LocalImageProcessor] 图片加载完成: ${width}x${height}`);
 
       // 创建 Canvas 并绘制图片
+      console.log("[LocalImageProcessor] 创建 Canvas 并绘制图片...");
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -76,10 +82,14 @@ export class LocalImageProcessor implements IImageRecognitionService {
       const imageDataObj = ctx.getImageData(0, 0, width, height);
 
       // 分析图片
+      console.log("[LocalImageProcessor] 正在提取主要颜色...");
       const dominantColors = this.extractDominantColors(imageDataObj);
+      console.log("[LocalImageProcessor] 正在检测区域...");
       const regions = this.detectRegions(imageDataObj);
+      console.log(`[LocalImageProcessor] 检测到 ${regions.length} 个区域`);
       const elements = this.convertRegionsToElements(regions);
 
+      console.log(`[LocalImageProcessor] 分析完成，生成 ${elements.length} 个元素`);
       return {
         width,
         height,
@@ -89,6 +99,7 @@ export class LocalImageProcessor implements IImageRecognitionService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "未知错误";
+      console.error(`[LocalImageProcessor] 分析失败: ${errorMessage}`);
       return {
         width: 0,
         height: 0,
@@ -101,12 +112,25 @@ export class LocalImageProcessor implements IImageRecognitionService {
 
   /**
    * 加载图片
+   * 添加超时机制，防止在沙箱环境中 onload/onerror 事件未触发导致 Promise 永远挂起
    */
   private loadImage(imageData: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("图片加载失败"));
+      const LOAD_TIMEOUT_MS = 10000; // 10秒超时
+
+      const timeoutId = setTimeout(() => {
+        reject(new Error("图片加载超时，请检查图片是否有效或尝试使用 OpenAPI 模式"));
+      }, LOAD_TIMEOUT_MS);
+
+      img.onload = () => {
+        clearTimeout(timeoutId);
+        resolve(img);
+      };
+      img.onerror = () => {
+        clearTimeout(timeoutId);
+        reject(new Error("图片加载失败"));
+      };
       img.src = imageData;
     });
   }

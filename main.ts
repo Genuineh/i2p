@@ -489,8 +489,8 @@ async function handleImageUpload(
     const modeMessage =
       processingMode === "openapi"
         ? "正在使用 AI 识别图片内容..."
-        : "正在使用本地处理器分析图片...";
-    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 30 });
+        : "正在加载并分析图片...";
+    pixso.ui.postMessage({ type: "processing", message: modeMessage, progress: 25 });
 
     // 根据处理模式选择超时时间
     const timeoutMs =
@@ -501,6 +501,7 @@ async function handleImageUpload(
         : "本地图片分析超时，可能是沙箱环境不支持 Canvas API";
 
     // 使用超时包装器执行分析
+    logger.debug("ImageUpload", "调用图片识别服务");
     const analysisResult = await withTimeout(
       imageRecognitionManager.analyze(imageData, processingMode, true),
       timeoutMs,
@@ -519,12 +520,22 @@ async function handleImageUpload(
       height: analysisResult.height,
     });
 
+    // 更新进度
+    pixso.ui.postMessage({
+      type: "processing",
+      message: `分析完成，识别到 ${analysisResult.elements.length} 个元素`,
+      progress: 50,
+    });
+
     // 根据分析结果生成设计元素
     pixso.ui.postMessage({ type: "processing", message: "正在生成设计元素...", progress: 60 });
 
     const nodes = await generateDesignElements(analysisResult, fileName, imageData);
 
     logger.info("ImageUpload", "设计元素生成完成", { nodesCount: nodes.length });
+
+    // 更新进度
+    pixso.ui.postMessage({ type: "processing", message: "正在完成设计...", progress: 90 });
 
     // 选中生成的元素并调整视图
     if (nodes.length > 0) {
